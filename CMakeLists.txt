@@ -1,0 +1,33 @@
+cmake_minimum_required(VERSION 3.24)
+
+project(Render2D VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_library(render2d STATIC
+    src/physics/world.cpp
+)
+
+add_library(render2d::render2d ALIAS render2d)
+
+target_include_directories(render2d
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+
+if(MSVC)
+    target_compile_options(render2d PRIVATE /W4 /permissive- /EHsc)
+else()
+    target_compile_options(render2d PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+endif()
+
+add_executable(headless_demo examples/headless_demo.cpp)
+target_link_libraries(headless_demo PRIVATE render2d::render2d)
+
+enable_testing()
+
+add_executable(render2d_tests tests/physics_tests.cpp)
+target_link_libraries(render2d_tests PRIVATE render2d::render2d)
+add_test(NAME render2d_tests COMMAND render2d_tests)

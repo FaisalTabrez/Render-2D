@@ -1,0 +1,12 @@
+# CMake and IDE build products
+/build*/
+/.vs/
+/out/
+
+# Native compiler intermediates
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.lib
+*.dll
