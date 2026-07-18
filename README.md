@@ -34,8 +34,26 @@ cmake -S . -B build-sdl `
 cmake --build build-sdl --config Debug --target sdl_sandbox
 ```
 
-Use Escape or close the window to exit. The next backend replaces the CPU
-texture upload with direct OpenGL draw-list batching.
+Use Escape or close the window to exit. This CPU-upload path remains the
+reference presentation backend; the direct GPU path is described below.
+
+## Direct OpenGL sandbox
+
+The OpenGL sandbox uses an OpenGL 3.3 Core context and renders the draw list
+directly on the GPU. It loads the required functions through SDL, compiles its
+own shaders, and batches colored circles, rectangles, and lines into one draw
+call per frame.
+
+```powershell
+cmake --build build-sdl --config Debug --target sdl_opengl_sandbox
+.\build-sdl\sdl_opengl_sandbox.exe
+```
+
+For a short non-interactive graphics smoke test, use:
+
+```powershell
+.\build-sdl\sdl_opengl_sandbox.exe --frames 3
+```
 
 ## Implemented features
 
@@ -46,6 +64,7 @@ texture upload with direct OpenGL draw-list batching.
 - Stable render layers for circles, rectangles, and lines
 - Camera pan, zoom, and rotation; alpha compositing; portable PPM frame output
 - SDL native-window sandbox with a reproducible vcpkg manifest
+- Direct OpenGL 3.3 primitive backend with a three-frame smoke-test mode
 
 ## Current API
 

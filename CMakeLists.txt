@@ -38,6 +38,18 @@ add_test(NAME render2d_tests COMMAND render2d_tests)
 if(RENDER2D_BUILD_SDL_SANDBOX)
     find_package(SDL3 CONFIG REQUIRED)
 
+    add_library(render2d_opengl STATIC src/render/opengl_renderer.cpp)
+    target_link_libraries(render2d_opengl PUBLIC render2d::render2d SDL3::SDL3)
+    target_include_directories(render2d_opengl PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+    if(MSVC)
+        target_compile_options(render2d_opengl PRIVATE /W4 /permissive- /EHsc)
+    else()
+        target_compile_options(render2d_opengl PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    endif()
+
     add_executable(sdl_sandbox examples/sdl_sandbox.cpp)
     target_link_libraries(sdl_sandbox PRIVATE render2d::render2d SDL3::SDL3)
+
+    add_executable(sdl_opengl_sandbox examples/sdl_opengl_sandbox.cpp)
+    target_link_libraries(sdl_opengl_sandbox PRIVATE render2d_opengl)
 endif()
