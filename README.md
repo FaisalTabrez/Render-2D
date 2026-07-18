@@ -1,100 +1,123 @@
 # Render2D
 
-Render2D is a native C++20 2D physics and rendering engine. Its core has no
-platform dependency and currently provides fixed-step rigid-body simulation,
-circle/box collisions, contact events, spatial queries, a draw list, camera,
-and a portable software reference renderer.
+Render2D is a native C++20 2D physics and rendering engine for small games,
+simulations, and editor tooling. The physics core is headless and independent
+of SDL, OpenGL, and platform APIs; rendering is submitted through a stable
+draw list and can target the software reference renderer or the OpenGL 3.3
+backend.
 
-## Build
+## Highlights
+
+- Fixed-step static, kinematic, and dynamic rigid bodies with forces, torque,
+  damping, sleeping, collision filtering, sensors, friction, and restitution.
+- Circle, oriented-box, and convex-polygon fixtures (up to eight vertices),
+  SAT collision detection, clipped polygon contact patches, lifecycle events,
+  and warm-started impulses.
+- A deterministic AABB-tree broad phase, AABB/ray queries, and bounded CCD
+  for circular bullet bodies against static or kinematic geometry.
+- Distance, revolute, and prismatic joints; prismatic limits and force-limited
+  motors are included.
+- A portable software renderer, camera, draw layers, sprites, atlas regions,
+  tile-map submission, binary PPM textures, plus an optional SDL/OpenGL 3.3
+  presentation path.
+- Physics debug draw, per-step telemetry, deterministic replay coverage, and a
+  1,000-body sparse-scene regression test.
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `include/render2d/physics` | Public physics API and value types. |
+| `include/render2d/render` | Draw list, camera, images, textures, sprites, and renderers. |
+| `include/render2d/debug` | Physics-to-draw-list diagnostics adapter. |
+| `src` | Physics, software renderer, OpenGL renderer, and debug implementation. |
+| `examples` | Headless, SDL software, and SDL OpenGL sandboxes. |
+| `tests` | Physics, rendering, stress, replay, and visual-regression checks. |
+
+## Build and test
+
+The core library and test target have no runtime platform dependency.
 
 ```powershell
-# In a Visual Studio x64 Developer Command Prompt:
+# Run from a Visual Studio x64 Developer Command Prompt.
 cmake -S . -B build
 cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-The `Debug` configuration is harmless with a single-config generator such as
-NMake and is required by multi-config Visual Studio generators.
+`--config Debug` is required by multi-config generators and is harmless for
+single-config generators.
 
-The core library and its tests have no third-party dependencies. The optional
-SDL 3 sandbox presents the reference-rendered frame in a native window. A
-direct OpenGL draw-list backend is the next rendering milestone.
+## SDL sandboxes
 
-## Interactive desktop sandbox
-
-The SDL sandbox opens a native window and displays frames produced by the
-engine's reference renderer. It is an optional target, keeping the library
-headless and testable by default.
+SDL 3 is resolved through the included vcpkg manifest. Configure the optional
+desktop targets as follows:
 
 ```powershell
 cmake -S . -B build-sdl `
   -DCMAKE_TOOLCHAIN_FILE="C:/Program Files/Microsoft Visual Studio/18/Community/VC/vcpkg/scripts/buildsystems/vcpkg.cmake" `
   -DRENDER2D_BUILD_SDL_SANDBOX=ON
-cmake --build build-sdl --config Debug --target sdl_sandbox
+cmake --build build-sdl
 ```
 
-Use Escape or close the window to exit. This CPU-upload path remains the
-reference presentation backend; the direct GPU path is described below.
-
-## Direct OpenGL sandbox
-
-The OpenGL sandbox uses an OpenGL 3.3 Core context and renders the draw list
-directly on the GPU. It loads the required functions through SDL, compiles its
-own shaders, and batches colored circles, rectangles, and lines into one draw
-call per frame.
+Run the software-reference window:
 
 ```powershell
-cmake --build build-sdl --config Debug --target sdl_opengl_sandbox
+.\build-sdl\sdl_sandbox.exe
+```
+
+Run the direct OpenGL 3.3 window:
+
+```powershell
 .\build-sdl\sdl_opengl_sandbox.exe
 ```
 
-For a short non-interactive graphics smoke test, use:
+For a non-interactive OpenGL smoke test:
 
 ```powershell
 .\build-sdl\sdl_opengl_sandbox.exe --frames 3
 ```
 
-## Implemented features
-
-- Fixed-timestep dynamic, kinematic, and static bodies
-- Angular velocity, torque, damping, and off-center force application
-- Configurable sleeping and explicit wake-up for inactive dynamic bodies
-- Distance joints with local anchors and deterministic sequential-impulse solving
-- Revolute joints with free angular motion around coincident local anchors
-- Prismatic joints with free travel along a local axis and optional translation limits
-- Force-limited prismatic motors and CCD continuation along an impact tangent
-- Physics debug draw for fixtures, AABBs, contact normals, joints, and sleeping bodies
-- Per-step solver-iteration and timing telemetry through `WorldStats`
-- Deterministic 1,000-body sparse-scene stress regression
-- Exact same-build deterministic replay regression for repeated force input
-- Bullet CCD for high-speed circular dynamic bodies against static or kinematic geometry
-- Deterministic per-pair contact-impulse caching and warm starting
-- Circle, oriented-box, and convex-polygon contacts with SAT (up to 8 vertices)
-- Deterministic dynamic AABB-tree broad phase, collision layers, AABB and ray-cast queries, friction, restitution,
-  force integration, and contact lifecycle events
-- Stable render layers for circles, rectangles, and lines
-- Camera pan, zoom, and rotation; alpha compositing; portable PPM frame output
-- SDL native-window sandbox with a reproducible vcpkg manifest
-- Direct OpenGL 3.3 primitive backend with a three-frame smoke-test mode
-- Texture assets from binary PPM files, named atlas regions, sprites, and
-  tile-map draw submission through either backend
-
-## Sprite assets and tile maps
-
-`TextureLibrary` owns image-backed textures, `SpriteAtlas` maps names to pixel
-regions, and `TileMap` emits layer-sorted sprite commands. The software and
-OpenGL renderers use the same `DrawList` commands. The current loader supports
-binary P6 PPM images; PNG and compressed image decoding are the next asset
-pipeline addition.
-
-## Current API
+## Minimal physics example
 
 ```cpp
-render2d::physics::World world{{.gravity = {0.0F, -9.81F}}};
-const auto floor = world.createBody({.type = BodyType::Static});
-world.createCircleFixture(floor, {.radius = 0.5F});
+#include "render2d/physics/world.hpp"
+
+using namespace render2d::physics;
+
+World world{{.gravity = {0.0F, -9.81F}}};
+
+const BodyId floor = world.createBody({
+    .type = BodyType::Static,
+    .position = {0.0F, -2.0F},
+});
+world.createBoxFixture(floor, {.halfExtents = {8.0F, 0.5F}});
+
+const BodyId ball = world.createBody({
+    .type = BodyType::Dynamic,
+    .position = {0.0F, 2.0F},
+    .mass = 1.0F,
+});
+world.createCircleFixture(ball, {.radius = 0.4F, .restitution = 0.3F});
+
+world.step(1.0F / 120.0F);
 ```
 
-See [ENGINE_DESIGN.md](ENGINE_DESIGN.md) for the intended architecture and
-delivery sequence.
+## Diagnostics and verification
+
+`WorldStats` reports body/fixture/contact counts, broad-phase activity, CCD
+tests and hits, warm starts, solver iterations, and elapsed step time.
+`PhysicsDebugRenderer` appends fixtures, AABBs, contact normals, joints, and
+sleeping-body state to a normal `render::DrawList`.
+
+The regression suite covers contact lifecycle, filters, joints and motors,
+bullet CCD including multiple impacts, polygon contacts, software-rendered
+debug output, exact replay on the same build, and a 1,000-body sparse scene.
+
+## Scope
+
+Render2D is intentionally compact. It supports convex rigid-body gameplay
+physics and desktop rendering; it is not a fixed-point networking engine,
+soft-body/fluids system, or general image-decoding library. Texture loading is
+currently limited to binary P6 PPM files. See [ENGINE_DESIGN.md](ENGINE_DESIGN.md)
+for the design rationale and architecture.
