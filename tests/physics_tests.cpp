@@ -144,6 +144,41 @@ void testCircleBoxCollision() {
     assert(world.contactEvents().size() == 1U);
 }
 
+void testOrientedBoxContacts() {
+    constexpr float halfPi = 1.57079632679F;
+    World separatedWorld {{.gravity = {0.0F, 0.0F}}};
+    const BodyId thinBox = separatedWorld.createBody({
+        .type = BodyType::Static,
+        .angle = halfPi,
+    });
+    static_cast<void>(separatedWorld.createBoxFixture(thinBox, {.halfExtents = {0.4F, 0.1F}}));
+    const BodyId separatedCircle = separatedWorld.createBody({
+        .type = BodyType::Dynamic,
+        .position = {0.45F, 0.0F},
+        .mass = 1.0F,
+    });
+    static_cast<void>(separatedWorld.createCircleFixture(separatedCircle, {.radius = 0.2F}));
+    separatedWorld.step(1.0F / 120.0F);
+    assert(separatedWorld.contactEvents().empty());
+
+    World overlapWorld {{.gravity = {0.0F, 0.0F}}};
+    const BodyId firstBox = overlapWorld.createBody({
+        .type = BodyType::Static,
+        .angle = 0.78539816339F,
+    });
+    static_cast<void>(overlapWorld.createBoxFixture(firstBox, {.halfExtents = {1.0F, 0.2F}}));
+    const BodyId secondBox = overlapWorld.createBody({
+        .type = BodyType::Dynamic,
+        .position = {0.45F, 0.45F},
+        .angle = -0.78539816339F,
+        .mass = 1.0F,
+    });
+    static_cast<void>(overlapWorld.createBoxFixture(secondBox, {.halfExtents = {0.35F, 0.35F}}));
+    overlapWorld.step(1.0F / 120.0F);
+    assert(overlapWorld.contactEvents().size() == 1U);
+    assert(overlapWorld.contactEvents().front().type == ContactEventType::Begin);
+}
+
 void testFilterAndAabbQuery() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId box = world.createBody({
@@ -257,6 +292,7 @@ int main() {
     testSensorDoesNotCorrectPosition();
     testBoxContactAndBroadPhaseStats();
     testCircleBoxCollision();
+    testOrientedBoxContacts();
     testFilterAndAabbQuery();
     testCameraRoundTripAndSoftwareRenderer();
     testTexturesSpritesAtlasesAndTileMaps();

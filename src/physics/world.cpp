@@ -1,6 +1,7 @@
 #include "render2d/physics/world.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -16,6 +17,7 @@ using math::length;
 using math::lengthSquared;
 using math::normalized;
 using math::overlaps;
+using math::rotate;
 
 [[nodiscard]] constexpr std::uint64_t fixtureKey(const FixtureId id) noexcept {
     return (static_cast<std::uint64_t>(id.generation) << 32U) | id.index;
@@ -371,9 +373,10 @@ void World::step(const float deltaTime) {
             }
             ++stats_.narrowPhaseTests;
 
-            const Vec2 firstCenter = firstBody->position + first.localCenter;
-            const Vec2 secondCenter = secondBody->position + second.localCenter;
+            const Vec2 firstCenter = firstBody->position + rotate(first.localCenter, firstBody->angle);
+            const Vec2 secondCenter = secondBody->position + rotate(second.localCenter, secondBody->angle);
             Vec2 normal {};
+            Vec2 contactPoint {};
             float penetration = 0.0F;
             bool collided = false;
 
@@ -385,48 +388,65 @@ void World::step(const float deltaTime) {
                     const float distance = std::sqrt(distanceSquared);
                     normal = distance > 1.0e-6F ? delta / distance : Vec2 {1.0F, 0.0F};
                     penetration = combinedRadius - distance;
+                    contactPoint = firstCenter + normal * (first.radius - penetration * 0.5F);
                     collided = true;
                 }
             } else if (first.shape == ShapeType::Box && second.shape == ShapeType::Box) {
                 const Vec2 delta = secondCenter - firstCenter;
-                const float overlapX = first.halfExtents.x + second.halfExtents.x - std::abs(delta.x);
-                const float overlapY = first.halfExtents.y + second.halfExtents.y - std::abs(delta.y);
-                if (overlapX > 0.0F && overlapY > 0.0F) {
-                    if (overlapX < overlapY) {
-                        normal = {delta.x >= 0.0F ? 1.0F : -1.0F, 0.0F};
-                        penetration = overlapX;
-                    } else {
-                        normal = {0.0F, delta.y >= 0.0F ? 1.0F : -1.0F};
-                        penetration = overlapY;
+                const Vec2 firstXAxis = rotate({1.0F, 0.0F}, firstBody->angle);
+                const Vec2 firstYAxis = rotate({0.0F, 1.0F}, firstBody->angle);
+                const Vec2 secondXAxis = rotate({1.0F, 0.0F}, secondBody->angle);
+                const Vec2 secondYAxis = rotate({0.0F, 1.0F}, secondBody->angle);
+                const std::array axes {firstXAxis, firstYAxis, secondXAxis, secondYAxis};
+                penetration = std::numeric_limits<float>::max();
+                collided = true;
+                for (const Vec2 axis : axes) {
+                    const float firstProjection =
+                        first.halfExtents.x * std::abs(dot(axis, firstXAxis)) +
+                        first.halfExtents.y * std::abs(dot(axis, firstYAxis));
+                    const float secondProjection =
+                        second.halfExtents.x * std::abs(dot(axis, secondXAxis)) +
+                        second.halfExtents.y * std::abs(dot(axis, secondYAxis));
+                    const float overlap = firstProjection + secondProjection - std::abs(dot(delta, axis));
+                    if (overlap <= 0.0F) {
+                        collided = false;
+                        break;
                     }
-                    collided = true;
+                    if (overlap < penetration) {
+                        penetration = overlap;
+                        normal = dot(delta, axis) >= 0.0F ? axis : -axis;
+                    }
                 }
+                contactPoint = (firstCenter + secondCenter) * 0.5F;
             } else {
                 const bool firstIsCircle = first.shape == ShapeType::Circle;
                 const Fixture& circle = firstIsCircle ? first : second;
                 const Vec2 circleCenter = firstIsCircle ? firstCenter : secondCenter;
                 const Fixture& box = firstIsCircle ? second : first;
                 const Vec2 boxCenter = firstIsCircle ? secondCenter : firstCenter;
-                const Aabb boxBounds {
-                    .min = boxCenter - box.halfExtents,
-                    .max = boxCenter + box.halfExtents,
+                const float boxAngle = firstIsCircle ? secondBody->angle : firstBody->angle;
+                const Aabb localBounds {
+                    .min = -box.halfExtents,
+                    .max = box.halfExtents,
                 };
-                const Vec2 closestPoint = math::clamp(circleCenter, boxBounds);
-                const Vec2 circleToBox = closestPoint - circleCenter;
+                const Vec2 localCircleCenter = rotate(circleCenter - boxCenter, -boxAngle);
+                const Vec2 closestPoint = math::clamp(localCircleCenter, localBounds);
+                const Vec2 circleToBox = closestPoint - localCircleCenter;
                 const float distanceSquared = lengthSquared(circleToBox);
 
                 if (distanceSquared > 1.0e-12F) {
                     const float distance = std::sqrt(distanceSquared);
                     if (distance < circle.radius) {
-                        normal = circleToBox / distance;
+                        normal = rotate(circleToBox / distance, boxAngle);
                         penetration = circle.radius - distance;
+                        contactPoint = boxCenter + rotate(closestPoint, boxAngle);
                         collided = true;
                     }
-                } else if (math::contains(boxBounds, circleCenter)) {
-                    const float left = circleCenter.x - boxBounds.min.x;
-                    const float right = boxBounds.max.x - circleCenter.x;
-                    const float bottom = circleCenter.y - boxBounds.min.y;
-                    const float top = boxBounds.max.y - circleCenter.y;
+                } else if (math::contains(localBounds, localCircleCenter)) {
+                    const float left = localCircleCenter.x - localBounds.min.x;
+                    const float right = localBounds.max.x - localCircleCenter.x;
+                    const float bottom = localCircleCenter.y - localBounds.min.y;
+                    const float top = localBounds.max.y - localCircleCenter.y;
                     const float nearestFace = std::min({left, right, bottom, top});
                     Vec2 outward {};
                     if (nearestFace == left) {
@@ -438,8 +458,9 @@ void World::step(const float deltaTime) {
                     } else {
                         outward = {0.0F, 1.0F};
                     }
-                    normal = -outward;
+                    normal = rotate(-outward, boxAngle);
                     penetration = circle.radius + nearestFace;
+                    contactPoint = circleCenter + normal * circle.radius;
                     collided = true;
                 }
 
@@ -462,6 +483,7 @@ void World::step(const float deltaTime) {
                 .fixtureA = firstEntry.id,
                 .fixtureB = secondEntry.id,
                 .normal = normal,
+                .point = contactPoint,
                 .penetration = penetration,
                 .sensor = sensor,
             });
@@ -526,17 +548,29 @@ void World::step(const float deltaTime) {
 
             const float firstInverseMass = inverseMass(*firstBody);
             const float secondInverseMass = inverseMass(*secondBody);
-            const float inverseMassSum = firstInverseMass + secondInverseMass;
-            if (inverseMassSum <= 0.0F) {
+            const float firstInverseInertia = inverseInertia(*firstBody);
+            const float secondInverseInertia = inverseInertia(*secondBody);
+            const Vec2 firstArm = contact.point - firstBody->position;
+            const Vec2 secondArm = contact.point - secondBody->position;
+            const float firstNormalArm = math::cross(firstArm, contact.normal);
+            const float secondNormalArm = math::cross(secondArm, contact.normal);
+            const float normalMass = firstInverseMass + secondInverseMass +
+                firstInverseInertia * firstNormalArm * firstNormalArm +
+                secondInverseInertia * secondNormalArm * secondNormalArm;
+            if (normalMass <= 0.0F) {
                 continue;
             }
 
-            const Vec2 relativeVelocity = secondBody->linearVelocity - firstBody->linearVelocity;
+            const Vec2 firstPointVelocity = firstBody->linearVelocity +
+                math::cross(firstBody->angularVelocity, firstArm);
+            const Vec2 secondPointVelocity = secondBody->linearVelocity +
+                math::cross(secondBody->angularVelocity, secondArm);
+            const Vec2 relativeVelocity = secondPointVelocity - firstPointVelocity;
             const float velocityAlongNormal = dot(relativeVelocity, contact.normal);
             const float restitution = mixRestitution(
                 firstFixtureSlot->value->restitution, secondFixtureSlot->value->restitution);
             const float normalImpulseChange =
-                -((1.0F + restitution) * velocityAlongNormal) / inverseMassSum;
+                -((1.0F + restitution) * velocityAlongNormal) / normalMass;
             const float oldNormalImpulse = contact.accumulatedNormalImpulse;
             contact.accumulatedNormalImpulse =
                 std::max(oldNormalImpulse + normalImpulseChange, 0.0F);
@@ -544,9 +578,12 @@ void World::step(const float deltaTime) {
                 contact.normal * (contact.accumulatedNormalImpulse - oldNormalImpulse);
             firstBody->linearVelocity -= normalImpulse * firstInverseMass;
             secondBody->linearVelocity += normalImpulse * secondInverseMass;
+            firstBody->angularVelocity -= firstInverseInertia * math::cross(firstArm, normalImpulse);
+            secondBody->angularVelocity += secondInverseInertia * math::cross(secondArm, normalImpulse);
 
             const Vec2 postNormalRelativeVelocity =
-                secondBody->linearVelocity - firstBody->linearVelocity;
+                (secondBody->linearVelocity + math::cross(secondBody->angularVelocity, secondArm)) -
+                (firstBody->linearVelocity + math::cross(firstBody->angularVelocity, firstArm));
             const Vec2 tangentVector = postNormalRelativeVelocity -
                 contact.normal * dot(postNormalRelativeVelocity, contact.normal);
             if (lengthSquared(tangentVector) <= 1.0e-12F) {
@@ -554,8 +591,16 @@ void World::step(const float deltaTime) {
             }
 
             const Vec2 tangent = normalized(tangentVector);
+            const float firstTangentArm = math::cross(firstArm, tangent);
+            const float secondTangentArm = math::cross(secondArm, tangent);
+            const float tangentMass = firstInverseMass + secondInverseMass +
+                firstInverseInertia * firstTangentArm * firstTangentArm +
+                secondInverseInertia * secondTangentArm * secondTangentArm;
+            if (tangentMass <= 0.0F) {
+                continue;
+            }
             const float tangentImpulseChange =
-                -dot(postNormalRelativeVelocity, tangent) / inverseMassSum;
+                -dot(postNormalRelativeVelocity, tangent) / tangentMass;
             const float maximumFrictionImpulse = mixFriction(
                 firstFixtureSlot->value->friction, secondFixtureSlot->value->friction) *
                 contact.accumulatedNormalImpulse;
@@ -568,6 +613,8 @@ void World::step(const float deltaTime) {
                 tangent * (contact.accumulatedTangentImpulse - oldTangentImpulse);
             firstBody->linearVelocity -= tangentImpulse * firstInverseMass;
             secondBody->linearVelocity += tangentImpulse * secondInverseMass;
+            firstBody->angularVelocity -= firstInverseInertia * math::cross(firstArm, tangentImpulse);
+            secondBody->angularVelocity += secondInverseInertia * math::cross(secondArm, tangentImpulse);
         }
     }
 
@@ -645,12 +692,18 @@ Aabb World::fixtureAabb(const Fixture& fixture) const noexcept {
         return {};
     }
 
-    const Vec2 center = state->position + fixture.localCenter;
+    const Vec2 center = state->position + rotate(fixture.localCenter, state->angle);
     if (fixture.shape == ShapeType::Circle) {
         const Vec2 extent {fixture.radius, fixture.radius};
         return {.min = center - extent, .max = center + extent};
     }
-    return {.min = center - fixture.halfExtents, .max = center + fixture.halfExtents};
+    const Vec2 xAxis = rotate({1.0F, 0.0F}, state->angle);
+    const Vec2 yAxis = rotate({0.0F, 1.0F}, state->angle);
+    const Vec2 extent {
+        .x = std::abs(xAxis.x) * fixture.halfExtents.x + std::abs(yAxis.x) * fixture.halfExtents.y,
+        .y = std::abs(xAxis.y) * fixture.halfExtents.x + std::abs(yAxis.y) * fixture.halfExtents.y,
+    };
+    return {.min = center - extent, .max = center + extent};
 }
 
 } // namespace render2d::physics

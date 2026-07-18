@@ -58,7 +58,8 @@ For a short non-interactive graphics smoke test, use:
 ## Implemented features
 
 - Fixed-timestep dynamic, kinematic, and static bodies
-- Circle, axis-aligned box, and circle–box contact generation
+- Angular velocity, torque, damping, and off-center force application
+- Circle, oriented-box, and circle–box contact generation with SAT
 - AABB pair pruning, collision layers, AABB queries, friction, restitution,
   force integration, and contact lifecycle events
 - Stable render layers for circles, rectangles, and lines
