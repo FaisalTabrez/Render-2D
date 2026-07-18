@@ -96,6 +96,86 @@ using math::rotate;
     return signedArea(vertices) > 1.0e-6F;
 }
 
+struct SweepHit {
+    float fraction {1.0F};
+    Vec2 normal {};
+};
+
+[[nodiscard]] bool sweepCircleAgainstCircle(
+    const Vec2 start,
+    const Vec2 translation,
+    const float radius,
+    const Vec2 targetCenter,
+    const float targetRadius,
+    SweepHit& hit) noexcept {
+    const Vec2 offset = start - targetCenter;
+    const float combinedRadius = radius + targetRadius;
+    const float translationLengthSquared = lengthSquared(translation);
+    const float c = lengthSquared(offset) - combinedRadius * combinedRadius;
+    if (c <= 0.0F || translationLengthSquared <= 1.0e-12F) {
+        return false;
+    }
+
+    const float b = dot(offset, translation);
+    const float discriminant = b * b - translationLengthSquared * c;
+    if (discriminant < 0.0F) {
+        return false;
+    }
+    const float fraction = (-b - std::sqrt(discriminant)) / translationLengthSquared;
+    if (fraction < 0.0F || fraction > 1.0F) {
+        return false;
+    }
+
+    hit.fraction = fraction;
+    hit.normal = normalized(start + translation * fraction - targetCenter);
+    return true;
+}
+
+[[nodiscard]] bool sweepCircleAgainstAabb(
+    const Vec2 start,
+    const Vec2 translation,
+    const float radius,
+    Aabb targetBounds,
+    SweepHit& hit) noexcept {
+    targetBounds.min -= Vec2 {radius, radius};
+    targetBounds.max += Vec2 {radius, radius};
+
+    float entry = 0.0F;
+    float exit = 1.0F;
+    Vec2 entryNormal {};
+    const auto intersectAxis = [&](const float startAxis, const float translationAxis,
+                                   const float minimum, const float maximum,
+                                   const Vec2 minimumNormal, const Vec2 maximumNormal) {
+        if (std::abs(translationAxis) <= 1.0e-12F) {
+            return startAxis >= minimum && startAxis <= maximum;
+        }
+        float nearFraction = (minimum - startAxis) / translationAxis;
+        float farFraction = (maximum - startAxis) / translationAxis;
+        Vec2 nearNormal = minimumNormal;
+        if (nearFraction > farFraction) {
+            std::swap(nearFraction, farFraction);
+            nearNormal = maximumNormal;
+        }
+        if (nearFraction > entry) {
+            entry = nearFraction;
+            entryNormal = nearNormal;
+        }
+        exit = std::min(exit, farFraction);
+        return entry <= exit;
+    };
+
+    if (!intersectAxis(start.x, translation.x, targetBounds.min.x, targetBounds.max.x,
+                       {-1.0F, 0.0F}, {1.0F, 0.0F}) ||
+        !intersectAxis(start.y, translation.y, targetBounds.min.y, targetBounds.max.y,
+                       {0.0F, -1.0F}, {0.0F, 1.0F}) || entry < 0.0F || entry > 1.0F) {
+        return false;
+    }
+
+    hit.fraction = entry;
+    hit.normal = entryNormal;
+    return true;
+}
+
 } // namespace
 
 World::World(WorldSettings settings) : settings_(settings) {
@@ -133,6 +213,7 @@ BodyId World::createBody(const BodyDefinition& definition) {
         .angularDamping = definition.angularDamping,
         .gravityScale = definition.gravityScale,
         .fixedRotation = definition.fixedRotation,
+        .bullet = definition.bullet,
     };
 
     for (std::uint32_t index = 0; index < bodies_.size(); ++index) {
@@ -491,6 +572,97 @@ void World::step(const float deltaTime) {
         }
         slot.force = {};
         slot.torque = 0.0F;
+    }
+
+    for (std::uint32_t bulletBodyIndex = 0; bulletBodyIndex < bodies_.size(); ++bulletBodyIndex) {
+        BodySlot& bulletSlot = bodies_[bulletBodyIndex];
+        if (!bulletSlot.value.has_value()) {
+            continue;
+        }
+        BodyState& bulletBody = *bulletSlot.value;
+        if (bulletBody.type != BodyType::Dynamic || !bulletBody.bullet || bulletBody.asleep) {
+            continue;
+        }
+
+        float earliestFraction = 1.0F;
+        Vec2 impactNormal {};
+        bool hitDetected = false;
+        for (std::uint32_t bulletFixtureIndex = 0; bulletFixtureIndex < fixtures_.size();
+             ++bulletFixtureIndex) {
+            const FixtureSlot& bulletFixtureSlot = fixtures_[bulletFixtureIndex];
+            if (!bulletFixtureSlot.value.has_value() ||
+                bulletFixtureSlot.value->body.index != bulletBodyIndex ||
+                bulletFixtureSlot.value->shape != ShapeType::Circle) {
+                continue;
+            }
+            const Fixture& bulletFixture = *bulletFixtureSlot.value;
+            const Vec2 start = bulletBody.previousPosition +
+                rotate(bulletFixture.localCenter, bulletBody.previousAngle);
+            const Vec2 end = bulletBody.position + rotate(bulletFixture.localCenter, bulletBody.angle);
+            const Vec2 translation = end - start;
+            const Aabb sweptBounds {
+                .min = {
+                    std::min(start.x, end.x) - bulletFixture.radius,
+                    std::min(start.y, end.y) - bulletFixture.radius,
+                },
+                .max = {
+                    std::max(start.x, end.x) + bulletFixture.radius,
+                    std::max(start.y, end.y) + bulletFixture.radius,
+                },
+            };
+            for (const FixtureSlot& targetSlot : fixtures_) {
+                if (!targetSlot.value.has_value()) {
+                    continue;
+                }
+                const Fixture& targetFixture = *targetSlot.value;
+                if (targetFixture.body == bulletFixture.body || targetFixture.sensor ||
+                    !canCollide(bulletFixture.filter, targetFixture.filter)) {
+                    continue;
+                }
+                const BodyState* const targetBody = body(targetFixture.body);
+                if (targetBody == nullptr ||
+                    (targetBody->type != BodyType::Static && targetBody->type != BodyType::Kinematic)) {
+                    continue;
+                }
+                const Aabb targetBounds = fixtureAabb(targetFixture);
+                if (!overlaps(sweptBounds, targetBounds)) {
+                    continue;
+                }
+
+                ++stats_.continuousCollisionTests;
+                SweepHit candidate {};
+                const bool hit = targetFixture.shape == ShapeType::Circle
+                    ? sweepCircleAgainstCircle(
+                          start,
+                          translation,
+                          bulletFixture.radius,
+                          targetBody->position +
+                              rotate(targetFixture.localCenter, targetBody->angle),
+                          targetFixture.radius,
+                          candidate)
+                    : sweepCircleAgainstAabb(
+                          start, translation, bulletFixture.radius, targetBounds, candidate);
+                if (hit && candidate.fraction < earliestFraction) {
+                    earliestFraction = candidate.fraction;
+                    impactNormal = candidate.normal;
+                    hitDetected = true;
+                }
+            }
+        }
+
+        if (hitDetected) {
+            constexpr float impactOverlap = 1.0e-4F;
+            const float resolvedFraction = std::min(earliestFraction + impactOverlap, 1.0F);
+            bulletBody.position = bulletBody.previousPosition +
+                (bulletBody.position - bulletBody.previousPosition) * resolvedFraction;
+            bulletBody.angle = bulletBody.previousAngle +
+                (bulletBody.angle - bulletBody.previousAngle) * resolvedFraction;
+            const float closingSpeed = dot(bulletBody.linearVelocity, impactNormal);
+            if (closingSpeed < 0.0F) {
+                bulletBody.linearVelocity -= impactNormal * closingSpeed;
+            }
+            ++stats_.continuousCollisionHits;
+        }
     }
 
     struct BroadPhaseEntry {

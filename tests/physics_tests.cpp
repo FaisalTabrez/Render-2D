@@ -108,6 +108,31 @@ void testDistanceJoint() {
     assert(!world.destroyJoint(bodyOwnedJoint));
 }
 
+void testBulletContinuousCollisionDetection() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId wall = world.createBody({
+        .type = BodyType::Static,
+        .position = {0.0F, 0.0F},
+    });
+    static_cast<void>(world.createBoxFixture(wall, {.halfExtents = {0.1F, 2.0F}}));
+    const BodyId bullet = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {-5.0F, 0.0F},
+        .linearVelocity = {100.0F, 0.0F},
+        .mass = 1.0F,
+        .bullet = true,
+    });
+    static_cast<void>(world.createCircleFixture(bullet, {.radius = 0.25F}));
+
+    world.step(0.1F);
+    const BodyState* const bulletState = world.body(bullet);
+    assert(bulletState != nullptr);
+    assert(bulletState->position.x < -0.2F);
+    assert(std::abs(bulletState->linearVelocity.x) < 0.0001F);
+    assert(world.stats().continuousCollisionTests == 1U);
+    assert(world.stats().continuousCollisionHits == 1U);
+}
+
 void testCircleContactLifecycle() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId anchor = world.createBody({
@@ -411,6 +436,7 @@ int main() {
     testAngularMotion();
     testSleepAndWake();
     testDistanceJoint();
+    testBulletContinuousCollisionDetection();
     testCircleContactLifecycle();
     testSensorDoesNotCorrectPosition();
     testBoxContactAndBroadPhaseStats();

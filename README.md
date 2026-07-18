@@ -61,6 +61,7 @@ For a short non-interactive graphics smoke test, use:
 - Angular velocity, torque, damping, and off-center force application
 - Configurable sleeping and explicit wake-up for inactive dynamic bodies
 - Distance joints with local anchors and deterministic sequential-impulse solving
+- Bullet CCD for high-speed circular dynamic bodies against static or kinematic geometry
 - Circle, oriented-box, and convex-polygon contacts with SAT (up to 8 vertices)
 - Deterministic sweep-and-prune AABB broad phase, collision layers, AABB queries, friction, restitution,
   force integration, and contact lifecycle events

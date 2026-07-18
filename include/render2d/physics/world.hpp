@@ -94,6 +94,7 @@ struct BodyDefinition {
     float angularDamping {0.0F};
     float gravityScale {1.0F};
     bool fixedRotation {false};
+    bool bullet {false};
 };
 
 struct CircleFixtureDefinition {
@@ -146,6 +147,7 @@ struct BodyState {
     float angularDamping {0.0F};
     float gravityScale {1.0F};
     bool fixedRotation {false};
+    bool bullet {false};
     bool asleep {false};
     float sleepDuration {0.0F};
 };
@@ -165,6 +167,8 @@ struct WorldStats {
     std::size_t broadPhasePairTests {0};
     std::size_t broadPhaseCandidatePairs {0};
     std::size_t narrowPhaseTests {0};
+    std::size_t continuousCollisionTests {0};
+    std::size_t continuousCollisionHits {0};
     std::size_t activeContacts {0};
     std::size_t activeJoints {0};
     std::size_t sleepingBodies {0};

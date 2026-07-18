@@ -156,8 +156,10 @@ tune them per game without changing solver code.
   contacts and are destroyed automatically with either attached body.
 - **Continuous collision detection:** a `bullet` dynamic body uses swept AABB
   broad-phase candidates and a time-of-impact shape cast against static or
-  kinematic fixtures. Resolve the earliest impact, then finish the remaining
-  portion of the step with a bounded sub-step count.
+  kinematic fixtures. The current implementation supports circular bullet
+  fixtures, with exact circle casts and conservative expanded-AABB casts for
+  boxes and polygons. Resolve the earliest impact before discrete contact
+  solving; bounded remaining-step sub-stepping follows in a later iteration.
 - **Islands:** solve connected awake bodies, contacts, and joints together so
   sleep and constraint propagation are coherent.
 
