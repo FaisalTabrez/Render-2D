@@ -149,7 +149,11 @@ tune them per game without changing solver code.
 - **Warm starting:** carry matching contact impulses between steps.
 - **Sleeping:** sleep stable dynamic bodies after a configurable time; wake on
   force, torque, or an explicit velocity change. Island-wide wake propagation
-  follows with joints and contact caching.
+  is supported for the current distance joints; contact-cache propagation
+  follows.
+- **Distance joints:** generation-checked handles link two local anchors at a
+  fixed rest length. They use the same deterministic iterative solve order as
+  contacts and are destroyed automatically with either attached body.
 - **Continuous collision detection:** a `bullet` dynamic body uses swept AABB
   broad-phase candidates and a time-of-impact shape cast against static or
   kinematic fixtures. Resolve the earliest impact, then finish the remaining

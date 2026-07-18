@@ -161,6 +161,13 @@ bool World::destroyBody(const BodyId id) noexcept {
             fixtureSlot.generation = nextGeneration(fixtureSlot.generation);
         }
     }
+    for (JointSlot& jointSlot : joints_) {
+        if (jointSlot.value.has_value() &&
+            (jointSlot.value->bodyA == id || jointSlot.value->bodyB == id)) {
+            jointSlot.value.reset();
+            jointSlot.generation = nextGeneration(jointSlot.generation);
+        }
+    }
 
     slot->value.reset();
     slot->force = {};
@@ -289,6 +296,51 @@ bool World::destroyFixture(const FixtureId id) noexcept {
     return true;
 }
 
+JointId World::createDistanceJoint(const DistanceJointDefinition& definition) {
+    if (bodySlot(definition.bodyA) == nullptr || bodySlot(definition.bodyB) == nullptr) {
+        return {};
+    }
+    if (definition.bodyA == definition.bodyB || !isFinite(definition.localAnchorA) ||
+        !isFinite(definition.localAnchorB) || !std::isfinite(definition.length) ||
+        !std::isfinite(definition.stiffness) || definition.length < 0.0F ||
+        definition.stiffness <= 0.0F || definition.stiffness > 1.0F) {
+        throw std::invalid_argument("DistanceJointDefinition contains an invalid value");
+    }
+
+    DistanceJoint joint {
+        .bodyA = definition.bodyA,
+        .bodyB = definition.bodyB,
+        .localAnchorA = definition.localAnchorA,
+        .localAnchorB = definition.localAnchorB,
+        .length = definition.length,
+        .stiffness = definition.stiffness,
+    };
+    for (std::uint32_t index = 0; index < joints_.size(); ++index) {
+        JointSlot& slot = joints_[index];
+        if (!slot.value.has_value()) {
+            slot.value = joint;
+            static_cast<void>(wake(definition.bodyA));
+            static_cast<void>(wake(definition.bodyB));
+            return {.index = index, .generation = slot.generation};
+        }
+    }
+
+    joints_.push_back(JointSlot {.value = joint});
+    static_cast<void>(wake(definition.bodyA));
+    static_cast<void>(wake(definition.bodyB));
+    return {.index = static_cast<std::uint32_t>(joints_.size() - 1U), .generation = 1U};
+}
+
+bool World::destroyJoint(const JointId id) noexcept {
+    JointSlot* const slot = jointSlot(id);
+    if (slot == nullptr) {
+        return false;
+    }
+    slot->value.reset();
+    slot->generation = nextGeneration(slot->generation);
+    return true;
+}
+
 BodyState* World::body(const BodyId id) noexcept {
     BodySlot* const slot = bodySlot(id);
     return slot != nullptr ? &*slot->value : nullptr;
@@ -390,6 +442,25 @@ void World::step(const float deltaTime) {
 
     events_.clear();
     stats_ = {};
+
+    for (const JointSlot& slot : joints_) {
+        if (!slot.value.has_value()) {
+            continue;
+        }
+        ++stats_.activeJoints;
+        BodyState* const firstBody = body(slot.value->bodyA);
+        BodyState* const secondBody = body(slot.value->bodyB);
+        if (firstBody == nullptr || secondBody == nullptr) {
+            continue;
+        }
+        if (firstBody->type == BodyType::Dynamic && secondBody->type == BodyType::Dynamic &&
+            firstBody->asleep != secondBody->asleep) {
+            firstBody->asleep = false;
+            firstBody->sleepDuration = 0.0F;
+            secondBody->asleep = false;
+            secondBody->sleepDuration = 0.0F;
+        }
+    }
 
     for (BodySlot& slot : bodies_) {
         if (!slot.value.has_value()) {
@@ -680,6 +751,40 @@ void World::step(const float deltaTime) {
         secondBody->position += correction * secondInverseMass;
     }
 
+    for (JointSlot& slot : joints_) {
+        if (!slot.value.has_value()) {
+            continue;
+        }
+        const DistanceJoint& joint = *slot.value;
+        BodyState* const firstBody = body(joint.bodyA);
+        BodyState* const secondBody = body(joint.bodyB);
+        if (firstBody == nullptr || secondBody == nullptr) {
+            continue;
+        }
+
+        const Vec2 firstArm = rotate(joint.localAnchorA, firstBody->angle);
+        const Vec2 secondArm = rotate(joint.localAnchorB, secondBody->angle);
+        const Vec2 delta = (secondBody->position + secondArm) -
+            (firstBody->position + firstArm);
+        const float distance = length(delta);
+        const Vec2 normal = distance > 1.0e-6F ? delta / distance : Vec2 {1.0F, 0.0F};
+        const float firstNormalArm = math::cross(firstArm, normal);
+        const float secondNormalArm = math::cross(secondArm, normal);
+        const float effectiveMass = inverseMass(*firstBody) + inverseMass(*secondBody) +
+            inverseInertia(*firstBody) * firstNormalArm * firstNormalArm +
+            inverseInertia(*secondBody) * secondNormalArm * secondNormalArm;
+        if (effectiveMass <= 1.0e-6F) {
+            continue;
+        }
+
+        const float positionLambda =
+            (distance - joint.length) * joint.stiffness / effectiveMass;
+        firstBody->position += normal * (positionLambda * inverseMass(*firstBody));
+        secondBody->position -= normal * (positionLambda * inverseMass(*secondBody));
+        firstBody->angle += positionLambda * inverseInertia(*firstBody) * firstNormalArm;
+        secondBody->angle -= positionLambda * inverseInertia(*secondBody) * secondNormalArm;
+    }
+
     for (std::uint32_t iteration = 0; iteration < settings_.velocityIterations; ++iteration) {
         for (ContactConstraint& contact : contacts_) {
             if (contact.sensor) {
@@ -766,6 +871,49 @@ void World::step(const float deltaTime) {
             secondBody->linearVelocity += tangentImpulse * secondInverseMass;
             firstBody->angularVelocity -= firstInverseInertia * math::cross(firstArm, tangentImpulse);
             secondBody->angularVelocity += secondInverseInertia * math::cross(secondArm, tangentImpulse);
+        }
+
+        for (JointSlot& slot : joints_) {
+            if (!slot.value.has_value()) {
+                continue;
+            }
+            const DistanceJoint& joint = *slot.value;
+            BodyState* const firstBody = body(joint.bodyA);
+            BodyState* const secondBody = body(joint.bodyB);
+            if (firstBody == nullptr || secondBody == nullptr) {
+                continue;
+            }
+
+            const Vec2 firstArm = rotate(joint.localAnchorA, firstBody->angle);
+            const Vec2 secondArm = rotate(joint.localAnchorB, secondBody->angle);
+            const Vec2 delta = (secondBody->position + secondArm) -
+                (firstBody->position + firstArm);
+            const float distance = length(delta);
+            const Vec2 normal = distance > 1.0e-6F ? delta / distance : Vec2 {1.0F, 0.0F};
+            const float firstNormalArm = math::cross(firstArm, normal);
+            const float secondNormalArm = math::cross(secondArm, normal);
+            const float firstInverseMass = inverseMass(*firstBody);
+            const float secondInverseMass = inverseMass(*secondBody);
+            const float firstInverseInertia = inverseInertia(*firstBody);
+            const float secondInverseInertia = inverseInertia(*secondBody);
+            const float effectiveMass = firstInverseMass + secondInverseMass +
+                firstInverseInertia * firstNormalArm * firstNormalArm +
+                secondInverseInertia * secondNormalArm * secondNormalArm;
+            if (effectiveMass <= 1.0e-6F) {
+                continue;
+            }
+
+            const Vec2 firstPointVelocity = firstBody->linearVelocity +
+                math::cross(firstBody->angularVelocity, firstArm);
+            const Vec2 secondPointVelocity = secondBody->linearVelocity +
+                math::cross(secondBody->angularVelocity, secondArm);
+            const float impulseMagnitude =
+                -dot(secondPointVelocity - firstPointVelocity, normal) / effectiveMass;
+            const Vec2 impulse = normal * impulseMagnitude;
+            firstBody->linearVelocity -= impulse * firstInverseMass;
+            secondBody->linearVelocity += impulse * secondInverseMass;
+            firstBody->angularVelocity -= firstInverseInertia * math::cross(firstArm, impulse);
+            secondBody->angularVelocity += secondInverseInertia * math::cross(secondArm, impulse);
         }
     }
 
@@ -857,6 +1005,22 @@ const World::FixtureSlot* World::fixtureSlot(const FixtureId id) const noexcept 
         return nullptr;
     }
     const FixtureSlot& slot = fixtures_[id.index];
+    return slot.generation == id.generation && slot.value.has_value() ? &slot : nullptr;
+}
+
+World::JointSlot* World::jointSlot(const JointId id) noexcept {
+    if (!id || id.index >= joints_.size()) {
+        return nullptr;
+    }
+    JointSlot& slot = joints_[id.index];
+    return slot.generation == id.generation && slot.value.has_value() ? &slot : nullptr;
+}
+
+const World::JointSlot* World::jointSlot(const JointId id) const noexcept {
+    if (!id || id.index >= joints_.size()) {
+        return nullptr;
+    }
+    const JointSlot& slot = joints_[id.index];
     return slot.generation == id.generation && slot.value.has_value() ? &slot : nullptr;
 }
 

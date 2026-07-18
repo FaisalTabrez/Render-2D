@@ -38,6 +38,17 @@ struct FixtureId {
     constexpr bool operator==(const FixtureId&) const noexcept = default;
 };
 
+struct JointId {
+    std::uint32_t index {invalidIndex};
+    std::uint32_t generation {0};
+
+    [[nodiscard]] constexpr explicit operator bool() const noexcept {
+        return index != invalidIndex;
+    }
+
+    constexpr bool operator==(const JointId&) const noexcept = default;
+};
+
 enum class BodyType {
     Static,
     Kinematic,
@@ -112,6 +123,15 @@ struct PolygonFixtureDefinition {
     CollisionFilter filter {};
 };
 
+struct DistanceJointDefinition {
+    BodyId bodyA {};
+    BodyId bodyB {};
+    Vec2 localAnchorA {};
+    Vec2 localAnchorB {};
+    float length {1.0F};
+    float stiffness {0.5F};
+};
+
 struct BodyState {
     BodyType type {BodyType::Static};
     Vec2 position {};
@@ -146,6 +166,7 @@ struct WorldStats {
     std::size_t broadPhaseCandidatePairs {0};
     std::size_t narrowPhaseTests {0};
     std::size_t activeContacts {0};
+    std::size_t activeJoints {0};
     std::size_t sleepingBodies {0};
 };
 
@@ -162,6 +183,8 @@ public:
     [[nodiscard]] FixtureId createPolygonFixture(
         BodyId body, const PolygonFixtureDefinition& definition);
     [[nodiscard]] bool destroyFixture(FixtureId id) noexcept;
+    [[nodiscard]] JointId createDistanceJoint(const DistanceJointDefinition& definition);
+    [[nodiscard]] bool destroyJoint(JointId id) noexcept;
 
     [[nodiscard]] BodyState* body(BodyId id) noexcept;
     [[nodiscard]] const BodyState* body(BodyId id) const noexcept;
@@ -207,6 +230,20 @@ private:
         std::optional<Fixture> value;
     };
 
+    struct DistanceJoint {
+        BodyId bodyA {};
+        BodyId bodyB {};
+        Vec2 localAnchorA {};
+        Vec2 localAnchorB {};
+        float length {1.0F};
+        float stiffness {0.5F};
+    };
+
+    struct JointSlot {
+        std::uint32_t generation {1};
+        std::optional<DistanceJoint> value;
+    };
+
     struct ContactConstraint {
         FixtureId fixtureA {};
         FixtureId fixtureB {};
@@ -222,11 +259,14 @@ private:
     [[nodiscard]] const BodySlot* bodySlot(BodyId id) const noexcept;
     [[nodiscard]] FixtureSlot* fixtureSlot(FixtureId id) noexcept;
     [[nodiscard]] const FixtureSlot* fixtureSlot(FixtureId id) const noexcept;
+    [[nodiscard]] JointSlot* jointSlot(JointId id) noexcept;
+    [[nodiscard]] const JointSlot* jointSlot(JointId id) const noexcept;
     [[nodiscard]] Aabb fixtureAabb(const Fixture& fixture) const noexcept;
 
     WorldSettings settings_;
     std::vector<BodySlot> bodies_;
     std::vector<FixtureSlot> fixtures_;
+    std::vector<JointSlot> joints_;
     std::vector<ContactConstraint> contacts_;
     std::vector<ContactEvent> events_;
     std::set<std::pair<std::uint64_t, std::uint64_t>> activeContacts_;

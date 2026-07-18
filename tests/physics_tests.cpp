@@ -66,6 +66,48 @@ void testSleepAndWake() {
     assert(state->position.x > 0.0F);
 }
 
+void testDistanceJoint() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId anchor = world.createBody({.type = BodyType::Static});
+    const BodyId bob = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {4.0F, 0.0F},
+        .mass = 1.0F,
+    });
+    const JointId joint = world.createDistanceJoint({
+        .bodyA = anchor,
+        .bodyB = bob,
+        .length = 2.0F,
+    });
+    assert(joint);
+
+    for (int index = 0; index < 20; ++index) {
+        world.step(1.0F / 120.0F);
+    }
+    const BodyState* const bobState = world.body(bob);
+    assert(bobState != nullptr);
+    assert(std::abs(render2d::math::length(bobState->position) - 2.0F) < 0.01F);
+    assert(world.stats().activeJoints == 1U);
+
+    assert(world.destroyJoint(joint));
+    assert(!world.destroyJoint(joint));
+    world.step(1.0F / 120.0F);
+    assert(world.stats().activeJoints == 0U);
+
+    const BodyId temporaryBody = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {0.0F, 1.0F},
+        .mass = 1.0F,
+    });
+    const JointId bodyOwnedJoint = world.createDistanceJoint({
+        .bodyA = anchor,
+        .bodyB = temporaryBody,
+        .length = 1.0F,
+    });
+    assert(world.destroyBody(temporaryBody));
+    assert(!world.destroyJoint(bodyOwnedJoint));
+}
+
 void testCircleContactLifecycle() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId anchor = world.createBody({
@@ -368,6 +410,7 @@ int main() {
     testGravity();
     testAngularMotion();
     testSleepAndWake();
+    testDistanceJoint();
     testCircleContactLifecycle();
     testSensorDoesNotCorrectPosition();
     testBoxContactAndBroadPhaseStats();
