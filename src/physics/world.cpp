@@ -176,6 +176,103 @@ struct SweepHit {
     return true;
 }
 
+[[nodiscard]] constexpr Aabb combinedAabb(const Aabb first, const Aabb second) noexcept {
+    return {
+        .min = {std::min(first.min.x, second.min.x), std::min(first.min.y, second.min.y)},
+        .max = {std::max(first.max.x, second.max.x), std::max(first.max.y, second.max.y)},
+    };
+}
+
+[[nodiscard]] constexpr float aabbPerimeter(const Aabb bounds) noexcept {
+    return 2.0F * ((bounds.max.x - bounds.min.x) + (bounds.max.y - bounds.min.y));
+}
+
+class DynamicAabbTree {
+public:
+    void insert(const std::size_t entryIndex, const Aabb bounds) {
+        const int leaf = static_cast<int>(nodes_.size());
+        nodes_.push_back({.bounds = bounds, .entryIndex = entryIndex});
+        if (root_ < 0) {
+            root_ = leaf;
+            return;
+        }
+
+        int sibling = root_;
+        while (!nodes_[sibling].isLeaf()) {
+            const int left = nodes_[sibling].left;
+            const int right = nodes_[sibling].right;
+            const float leftCost = aabbPerimeter(combinedAabb(nodes_[left].bounds, bounds)) -
+                aabbPerimeter(nodes_[left].bounds);
+            const float rightCost = aabbPerimeter(combinedAabb(nodes_[right].bounds, bounds)) -
+                aabbPerimeter(nodes_[right].bounds);
+            sibling = leftCost <= rightCost ? left : right;
+        }
+
+        const int oldParent = nodes_[sibling].parent;
+        const int parent = static_cast<int>(nodes_.size());
+        nodes_.push_back({
+            .bounds = combinedAabb(nodes_[sibling].bounds, bounds),
+            .parent = oldParent,
+            .left = sibling,
+            .right = leaf,
+        });
+        nodes_[sibling].parent = parent;
+        nodes_[leaf].parent = parent;
+        if (oldParent < 0) {
+            root_ = parent;
+        } else if (nodes_[oldParent].left == sibling) {
+            nodes_[oldParent].left = parent;
+        } else {
+            nodes_[oldParent].right = parent;
+        }
+
+        for (int index = parent; index >= 0; index = nodes_[index].parent) {
+            if (!nodes_[index].isLeaf()) {
+                nodes_[index].bounds = combinedAabb(
+                    nodes_[nodes_[index].left].bounds, nodes_[nodes_[index].right].bounds);
+            }
+        }
+    }
+
+    [[nodiscard]] std::vector<std::size_t> query(const Aabb bounds) const {
+        std::vector<std::size_t> results;
+        if (root_ < 0) {
+            return results;
+        }
+        std::vector<int> stack {root_};
+        while (!stack.empty()) {
+            const int index = stack.back();
+            stack.pop_back();
+            const Node& node = nodes_[index];
+            if (!overlaps(bounds, node.bounds)) {
+                continue;
+            }
+            if (node.isLeaf()) {
+                results.push_back(node.entryIndex);
+            } else {
+                stack.push_back(node.left);
+                stack.push_back(node.right);
+            }
+        }
+        std::sort(results.begin(), results.end());
+        return results;
+    }
+
+private:
+    struct Node {
+        Aabb bounds {};
+        int parent {-1};
+        int left {-1};
+        int right {-1};
+        std::size_t entryIndex {std::numeric_limits<std::size_t>::max()};
+
+        [[nodiscard]] bool isLeaf() const noexcept { return left < 0; }
+    };
+
+    std::vector<Node> nodes_;
+    int root_ {-1};
+};
+
 } // namespace
 
 World::World(WorldSettings settings) : settings_(settings) {
@@ -516,6 +613,67 @@ std::vector<FixtureId> World::queryAabb(const Aabb& bounds) const {
     return results;
 }
 
+std::optional<RayCastHit> World::rayCast(const Vec2 start, const Vec2 end) const {
+    if (!isFinite(start) || !isFinite(end)) {
+        throw std::invalid_argument("World::rayCast requires finite endpoints");
+    }
+
+    const Vec2 translation = end - start;
+    struct RayCastEntry {
+        FixtureId id {};
+        const Fixture* fixture {nullptr};
+        Aabb bounds {};
+    };
+    std::vector<RayCastEntry> entries;
+    DynamicAabbTree tree;
+    for (std::uint32_t index = 0; index < fixtures_.size(); ++index) {
+        const FixtureSlot& slot = fixtures_[index];
+        if (!slot.value.has_value() || body(slot.value->body) == nullptr) {
+            continue;
+        }
+        entries.push_back({
+            .id = {.index = index, .generation = slot.generation},
+            .fixture = &*slot.value,
+            .bounds = fixtureAabb(*slot.value),
+        });
+        tree.insert(entries.size() - 1U, entries.back().bounds);
+    }
+    const Aabb rayBounds {
+        .min = {std::min(start.x, end.x), std::min(start.y, end.y)},
+        .max = {std::max(start.x, end.x), std::max(start.y, end.y)},
+    };
+    std::optional<RayCastHit> closestHit;
+    for (const std::size_t entryIndex : tree.query(rayBounds)) {
+        const RayCastEntry& entry = entries[entryIndex];
+        const Fixture& fixture = *entry.fixture;
+        const BodyState* const fixtureBody = body(fixture.body);
+        SweepHit hit {};
+        const bool intersected = fixture.shape == ShapeType::Circle
+            ? sweepCircleAgainstCircle(
+                  start,
+                  translation,
+                  0.0F,
+                  fixtureBody->position + rotate(fixture.localCenter, fixtureBody->angle),
+                  fixture.radius,
+                  hit)
+            : sweepCircleAgainstAabb(start, translation, 0.0F, fixtureAabb(fixture), hit);
+        if (!intersected) {
+            continue;
+        }
+        if (!closestHit.has_value() || hit.fraction < closestHit->fraction ||
+            (hit.fraction == closestHit->fraction &&
+             fixtureKey(entry.id) < fixtureKey(closestHit->fixture))) {
+            closestHit = RayCastHit {
+                .fixture = entry.id,
+                .point = start + translation * hit.fraction,
+                .normal = hit.normal,
+                .fraction = hit.fraction,
+            };
+        }
+    }
+    return closestHit;
+}
+
 void World::step(const float deltaTime) {
     if (!std::isfinite(deltaTime) || deltaTime <= 0.0F) {
         throw std::invalid_argument("World::step requires a positive finite delta time");
@@ -685,13 +843,10 @@ void World::step(const float deltaTime) {
         });
     }
 
-    std::stable_sort(
-        broadPhaseEntries.begin(), broadPhaseEntries.end(), [](const BroadPhaseEntry& first,
-                                                               const BroadPhaseEntry& second) {
-            return first.bounds.min.x == second.bounds.min.x
-                ? fixtureKey(first.id) < fixtureKey(second.id)
-                : first.bounds.min.x < second.bounds.min.x;
-        });
+    DynamicAabbTree broadPhaseTree;
+    for (std::size_t index = 0; index < broadPhaseEntries.size(); ++index) {
+        broadPhaseTree.insert(index, broadPhaseEntries[index].bounds);
+    }
 
     contacts_.clear();
     std::set<std::pair<std::uint64_t, std::uint64_t>> currentContacts;
@@ -704,12 +859,12 @@ void World::step(const float deltaTime) {
             continue;
         }
 
-        for (std::size_t secondIndex = firstIndex + 1U;
-             secondIndex < broadPhaseEntries.size(); ++secondIndex) {
-            const BroadPhaseEntry& secondEntry = broadPhaseEntries[secondIndex];
-            if (secondEntry.bounds.min.x > firstEntry.bounds.max.x) {
-                break;
+        const std::vector<std::size_t> candidates = broadPhaseTree.query(firstEntry.bounds);
+        for (const std::size_t secondIndex : candidates) {
+            if (secondIndex <= firstIndex) {
+                continue;
             }
+            const BroadPhaseEntry& secondEntry = broadPhaseEntries[secondIndex];
             ++stats_.broadPhasePairTests;
             const Fixture& second = *secondEntry.fixture;
             const BodyState* const secondBody = body(second.body);

@@ -64,7 +64,7 @@ For a short non-interactive graphics smoke test, use:
 - Bullet CCD for high-speed circular dynamic bodies against static or kinematic geometry
 - Deterministic per-pair contact-impulse caching and warm starting
 - Circle, oriented-box, and convex-polygon contacts with SAT (up to 8 vertices)
-- Deterministic sweep-and-prune AABB broad phase, collision layers, AABB queries, friction, restitution,
+- Deterministic dynamic AABB-tree broad phase, collision layers, AABB and ray-cast queries, friction, restitution,
   force integration, and contact lifecycle events
 - Stable render layers for circles, rectangles, and lines
 - Camera pan, zoom, and rotation; alpha compositing; portable PPM frame output

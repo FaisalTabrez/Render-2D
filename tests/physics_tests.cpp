@@ -358,6 +358,23 @@ void testFilterAndAabbQuery() {
     assert(world.stats().narrowPhaseTests == 0U);
 }
 
+void testRayCastQuery() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId wall = world.createBody({.type = BodyType::Static});
+    const FixtureId wallFixture = world.createBoxFixture(wall, {.halfExtents = {0.5F, 1.0F}});
+    const BodyId distantCircle = world.createBody({
+        .type = BodyType::Static,
+        .position = {3.0F, 0.0F},
+    });
+    static_cast<void>(world.createCircleFixture(distantCircle, {.radius = 0.5F}));
+
+    const auto hit = world.rayCast({-4.0F, 0.0F}, {4.0F, 0.0F});
+    assert(hit.has_value());
+    assert(hit->fixture == wallFixture);
+    assert(std::abs(hit->point.x + 0.5F) < 0.0001F);
+    assert(hit->normal.x < -0.9F);
+}
+
 void testSweepAndPruneSkipsSparsePairs() {
     World world {{.gravity = {0.0F, 0.0F}}};
     for (int index = 0; index < 16; ++index) {
@@ -462,6 +479,7 @@ int main() {
     testOrientedBoxContacts();
     testConvexPolygonContacts();
     testFilterAndAabbQuery();
+    testRayCastQuery();
     testSweepAndPruneSkipsSparsePairs();
     testCameraRoundTripAndSoftwareRenderer();
     testTexturesSpritesAtlasesAndTileMaps();

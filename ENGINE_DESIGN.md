@@ -26,7 +26,7 @@ engine or a soft-body/fluids simulator.
 | Coordinates | Physics: metres, +Y up, radians | Conventional, unambiguous mechanics. |
 | Display mapping | Camera maps physics +Y-up to screen +Y-down | Rendering does not contaminate physics. |
 | Physics data | Numeric component stores / handles | Avoids allocating object graphs inside hot loops. |
-| Broad phase | Sweep-and-prune now; dynamic AABB tree later | Deterministic pruning now, with a future high-churn upgrade path. |
+| Broad phase | Dynamic AABB tree | Deterministic hierarchy traversal for sparse and high-churn scenes. |
 | Contacts | Sequential-impulse solver with warm starting | Mature, game-ready rigid-body approach. |
 | Reference renderer | Portable software rasterizer | Dependency-free correctness baseline and image-test target. |
 | First GPU renderer | OpenGL 3.3 Core | Small, portable desktop GPU target with sprite batching. |
@@ -117,7 +117,7 @@ decomposed into convex fixtures rather than added to the narrow phase.
    boundary.
 2. Integrate forces and gravity into dynamic-body velocities using
    semi-implicit Euler.
-3. Compute fixture AABBs and update moved leaves in the dynamic AABB tree.
+3. Compute fixture AABBs and insert deterministic fixture leaves in the dynamic AABB tree.
 4. Query the tree to generate potentially overlapping fixture pairs.
 5. Apply category/mask/group filtering and discard invalid pairs.
 6. Generate collision manifolds using circle tests and SAT with polygon

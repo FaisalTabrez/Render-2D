@@ -162,6 +162,13 @@ struct ContactEvent {
     bool sensor {false};
 };
 
+struct RayCastHit {
+    FixtureId fixture {};
+    Vec2 point {};
+    Vec2 normal {};
+    float fraction {0.0F};
+};
+
 struct WorldStats {
     std::size_t activeBodies {0};
     std::size_t activeFixtures {0};
@@ -202,6 +209,7 @@ public:
     [[nodiscard]] bool wake(BodyId id) noexcept;
 
     [[nodiscard]] std::vector<FixtureId> queryAabb(const Aabb& bounds) const;
+    [[nodiscard]] std::optional<RayCastHit> rayCast(Vec2 start, Vec2 end) const;
 
     void step(float deltaTime);
 
