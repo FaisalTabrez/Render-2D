@@ -279,7 +279,8 @@ World::World(WorldSettings settings) : settings_(settings) {
     if (!isFinite(settings_.gravity) || settings_.velocityIterations == 0U ||
         settings_.penetrationSlop < 0.0F || settings_.positionCorrection < 0.0F ||
         settings_.positionCorrection > 1.0F || settings_.sleepLinearThreshold < 0.0F ||
-        settings_.sleepAngularThreshold < 0.0F || settings_.sleepDelay < 0.0F) {
+        settings_.sleepAngularThreshold < 0.0F || settings_.sleepDelay < 0.0F ||
+        settings_.maxCcdSubSteps == 0U) {
         throw std::invalid_argument("WorldSettings contains an invalid value");
     }
 }
@@ -827,11 +828,21 @@ void World::step(const float deltaTime) {
             continue;
         }
 
-        float earliestFraction = 1.0F;
-        Vec2 impactNormal {};
-        bool hitDetected = false;
-        for (std::uint32_t bulletFixtureIndex = 0; bulletFixtureIndex < fixtures_.size();
-             ++bulletFixtureIndex) {
+        float remainingTime = deltaTime;
+        bulletBody.position = bulletBody.previousPosition;
+        bulletBody.angle = bulletBody.previousAngle;
+        for (std::uint32_t subStep = 0U;
+             subStep < settings_.maxCcdSubSteps && remainingTime > 1.0e-6F;
+             ++subStep) {
+            const Vec2 startPosition = bulletBody.position;
+            const float startAngle = bulletBody.angle;
+            const Vec2 endPosition = startPosition + bulletBody.linearVelocity * remainingTime;
+            const float endAngle = startAngle + bulletBody.angularVelocity * remainingTime;
+            float earliestFraction = 1.0F;
+            Vec2 impactNormal {};
+            bool hitDetected = false;
+            for (std::uint32_t bulletFixtureIndex = 0; bulletFixtureIndex < fixtures_.size();
+                 ++bulletFixtureIndex) {
             const FixtureSlot& bulletFixtureSlot = fixtures_[bulletFixtureIndex];
             if (!bulletFixtureSlot.value.has_value() ||
                 bulletFixtureSlot.value->body.index != bulletBodyIndex ||
@@ -839,9 +850,9 @@ void World::step(const float deltaTime) {
                 continue;
             }
             const Fixture& bulletFixture = *bulletFixtureSlot.value;
-            const Vec2 start = bulletBody.previousPosition +
-                rotate(bulletFixture.localCenter, bulletBody.previousAngle);
-            const Vec2 end = bulletBody.position + rotate(bulletFixture.localCenter, bulletBody.angle);
+            const Vec2 start = startPosition +
+                rotate(bulletFixture.localCenter, startAngle);
+            const Vec2 end = endPosition + rotate(bulletFixture.localCenter, endAngle);
             const Vec2 translation = end - start;
             const Aabb sweptBounds {
                 .min = {
@@ -891,22 +902,30 @@ void World::step(const float deltaTime) {
                     hitDetected = true;
                 }
             }
-        }
+            }
 
-        if (hitDetected) {
-            constexpr float impactOverlap = 1.0e-4F;
-            const float resolvedFraction = std::min(earliestFraction + impactOverlap, 1.0F);
-            bulletBody.position = bulletBody.previousPosition +
-                (bulletBody.position - bulletBody.previousPosition) * resolvedFraction;
-            bulletBody.angle = bulletBody.previousAngle +
-                (bulletBody.angle - bulletBody.previousAngle) * resolvedFraction;
+            if (!hitDetected) {
+                bulletBody.position = endPosition;
+                bulletBody.angle = endAngle;
+                remainingTime = 0.0F;
+                break;
+            }
+
+            constexpr float impactSeparation = 1.0e-4F;
+            const float resolvedFraction = std::max(earliestFraction - impactSeparation, 0.0F);
+            bulletBody.position = startPosition +
+                (endPosition - startPosition) * resolvedFraction;
+            bulletBody.angle = startAngle + (endAngle - startAngle) * resolvedFraction;
             const float closingSpeed = dot(bulletBody.linearVelocity, impactNormal);
             if (closingSpeed < 0.0F) {
                 bulletBody.linearVelocity -= impactNormal * closingSpeed;
             }
-            bulletBody.position += bulletBody.linearVelocity *
-                (deltaTime * (1.0F - resolvedFraction));
+            remainingTime *= 1.0F - resolvedFraction;
             ++stats_.continuousCollisionHits;
+        }
+        if (remainingTime > 1.0e-6F) {
+            bulletBody.position += bulletBody.linearVelocity * remainingTime;
+            bulletBody.angle += bulletBody.angularVelocity * remainingTime;
         }
     }
 

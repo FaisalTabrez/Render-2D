@@ -165,9 +165,8 @@ tune them per game without changing solver code.
   kinematic fixtures. The current implementation supports circular bullet
   fixtures, with exact circle casts and conservative expanded-AABB casts for
   boxes and polygons. It resolves the earliest impact, removes the inward
-  velocity component, then advances the remaining fraction along the impact
-  tangent before discrete contact solving. Bounded multi-impact sub-stepping
-  follows in a later iteration.
+  velocity component, then casts the remaining time again for a bounded number
+  of impacts before discrete contact solving.
 - **Islands:** solve connected awake bodies, contacts, and joints together so
   sleep and constraint propagation are coherent.
 

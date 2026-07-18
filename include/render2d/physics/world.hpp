@@ -85,6 +85,7 @@ struct WorldSettings {
     float sleepLinearThreshold {0.05F};
     float sleepAngularThreshold {0.05F};
     float sleepDelay {0.5F};
+    std::uint32_t maxCcdSubSteps {4};
 };
 
 struct BodyDefinition {

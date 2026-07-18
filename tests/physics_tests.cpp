@@ -258,6 +258,36 @@ void testBulletCcdContinuesAlongTangent() {
     assert(bulletState->linearVelocity.y > 19.0F);
 }
 
+void testBulletCcdResolvesMultipleImpacts() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId verticalWall = world.createBody({
+        .type = BodyType::Static,
+        .position = {0.0F, -1.5F},
+    });
+    static_cast<void>(world.createBoxFixture(verticalWall, {.halfExtents = {0.1F, 2.0F}}));
+    const BodyId horizontalWall = world.createBody({
+        .type = BodyType::Static,
+        .position = {-0.5F, 1.0F},
+    });
+    static_cast<void>(world.createBoxFixture(horizontalWall, {.halfExtents = {2.0F, 0.1F}}));
+    const BodyId bullet = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {-5.0F, -5.0F},
+        .linearVelocity = {100.0F, 100.0F},
+        .mass = 1.0F,
+        .bullet = true,
+    });
+    static_cast<void>(world.createCircleFixture(bullet, {.radius = 0.25F}));
+
+    world.step(0.1F);
+    const BodyState* const bulletState = world.body(bullet);
+    assert(bulletState != nullptr);
+    assert(bulletState->position.x < -0.2F);
+    assert(bulletState->position.y < 0.7F);
+    assert(render2d::math::length(bulletState->linearVelocity) < 0.0001F);
+    assert(world.stats().continuousCollisionHits >= 2U);
+}
+
 void testContactImpulseWarmStarting() {
     World world {{.gravity = {0.0F, -10.0F}}};
     const BodyId floor = world.createBody({.type = BodyType::Static});
@@ -618,6 +648,7 @@ int main() {
     testPrismaticJointMotor();
     testBulletContinuousCollisionDetection();
     testBulletCcdContinuesAlongTangent();
+    testBulletCcdResolvesMultipleImpacts();
     testContactImpulseWarmStarting();
     testCircleContactLifecycle();
     testSensorDoesNotCorrectPosition();
