@@ -157,6 +157,9 @@ tune them per game without changing solver code.
   contacts and are destroyed automatically with either attached body.
 - **Revolute joints:** generation-checked hinges maintain coincident local
   anchors while allowing unrestricted relative rotation.
+- **Prismatic joints:** generation-checked sliders preserve a local travel axis
+  and reference angle while constraining sideways movement. Limits and motors
+  are planned extensions.
 - **Continuous collision detection:** a `bullet` dynamic body uses swept AABB
   broad-phase candidates and a time-of-impact shape cast against static or
   kinematic fixtures. The current implementation supports circular bullet

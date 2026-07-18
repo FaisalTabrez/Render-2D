@@ -142,6 +142,15 @@ struct RevoluteJointDefinition {
     float stiffness {0.5F};
 };
 
+struct PrismaticJointDefinition {
+    BodyId bodyA {};
+    BodyId bodyB {};
+    Vec2 localAnchorA {};
+    Vec2 localAnchorB {};
+    Vec2 localAxisA {1.0F, 0.0F};
+    float stiffness {0.5F};
+};
+
 struct BodyState {
     BodyType type {BodyType::Static};
     Vec2 position {};
@@ -206,6 +215,7 @@ public:
     [[nodiscard]] bool destroyFixture(FixtureId id) noexcept;
     [[nodiscard]] JointId createDistanceJoint(const DistanceJointDefinition& definition);
     [[nodiscard]] JointId createRevoluteJoint(const RevoluteJointDefinition& definition);
+    [[nodiscard]] JointId createPrismaticJoint(const PrismaticJointDefinition& definition);
     [[nodiscard]] bool destroyJoint(JointId id) noexcept;
 
     [[nodiscard]] BodyState* body(BodyId id) noexcept;
@@ -256,6 +266,7 @@ private:
     enum class JointType {
         Distance,
         Revolute,
+        Prismatic,
     };
 
     struct Joint {
@@ -264,8 +275,10 @@ private:
         BodyId bodyB {};
         Vec2 localAnchorA {};
         Vec2 localAnchorB {};
+        Vec2 localAxisA {1.0F, 0.0F};
         float length {1.0F};
         float stiffness {0.5F};
+        float referenceAngle {0.0F};
     };
 
     struct JointSlot {

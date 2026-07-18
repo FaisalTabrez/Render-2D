@@ -544,6 +544,46 @@ JointId World::createRevoluteJoint(const RevoluteJointDefinition& definition) {
     return {.index = static_cast<std::uint32_t>(joints_.size() - 1U), .generation = 1U};
 }
 
+JointId World::createPrismaticJoint(const PrismaticJointDefinition& definition) {
+    const BodyState* const firstBody = body(definition.bodyA);
+    const BodyState* const secondBody = body(definition.bodyB);
+    if (firstBody == nullptr || secondBody == nullptr) {
+        return {};
+    }
+    if (definition.bodyA == definition.bodyB || !isFinite(definition.localAnchorA) ||
+        !isFinite(definition.localAnchorB) || !isFinite(definition.localAxisA) ||
+        lengthSquared(definition.localAxisA) <= 1.0e-12F ||
+        !std::isfinite(definition.stiffness) || definition.stiffness <= 0.0F ||
+        definition.stiffness > 1.0F) {
+        throw std::invalid_argument("PrismaticJointDefinition contains an invalid value");
+    }
+
+    Joint joint {
+        .type = JointType::Prismatic,
+        .bodyA = definition.bodyA,
+        .bodyB = definition.bodyB,
+        .localAnchorA = definition.localAnchorA,
+        .localAnchorB = definition.localAnchorB,
+        .localAxisA = normalized(definition.localAxisA),
+        .stiffness = definition.stiffness,
+        .referenceAngle = secondBody->angle - firstBody->angle,
+    };
+    for (std::uint32_t index = 0; index < joints_.size(); ++index) {
+        JointSlot& slot = joints_[index];
+        if (!slot.value.has_value()) {
+            slot.value = joint;
+            static_cast<void>(wake(definition.bodyA));
+            static_cast<void>(wake(definition.bodyB));
+            return {.index = index, .generation = slot.generation};
+        }
+    }
+
+    joints_.push_back(JointSlot {.value = joint});
+    static_cast<void>(wake(definition.bodyA));
+    static_cast<void>(wake(definition.bodyB));
+    return {.index = static_cast<std::uint32_t>(joints_.size() - 1U), .generation = 1U};
+}
+
 bool World::destroyJoint(const JointId id) noexcept {
     JointSlot* const slot = jointSlot(id);
     if (slot == nullptr) {
@@ -1198,6 +1238,34 @@ void World::step(const float deltaTime) {
             secondBody->angle -= secondInverseInertia * math::cross(secondArm, positionLambda);
             continue;
         }
+        if (joint.type == JointType::Prismatic) {
+            const Vec2 axis = rotate(joint.localAxisA, firstBody->angle);
+            const Vec2 normal {-axis.y, axis.x};
+            const float firstInverseMass = inverseMass(*firstBody);
+            const float secondInverseMass = inverseMass(*secondBody);
+            const float firstInverseInertia = inverseInertia(*firstBody);
+            const float secondInverseInertia = inverseInertia(*secondBody);
+            const float firstNormalArm = math::cross(firstArm, normal);
+            const float secondNormalArm = math::cross(secondArm, normal);
+            const float effectiveMass = firstInverseMass + secondInverseMass +
+                firstInverseInertia * firstNormalArm * firstNormalArm +
+                secondInverseInertia * secondNormalArm * secondNormalArm;
+            if (effectiveMass > 1.0e-6F) {
+                const float lambda = dot(delta, normal) * joint.stiffness / effectiveMass;
+                firstBody->position += normal * (lambda * firstInverseMass);
+                secondBody->position -= normal * (lambda * secondInverseMass);
+                firstBody->angle += lambda * firstInverseInertia * firstNormalArm;
+                secondBody->angle -= lambda * secondInverseInertia * secondNormalArm;
+            }
+            const float angularMass = firstInverseInertia + secondInverseInertia;
+            if (angularMass > 1.0e-6F) {
+                const float angularLambda = (secondBody->angle - firstBody->angle -
+                    joint.referenceAngle) * joint.stiffness / angularMass;
+                firstBody->angle += angularLambda * firstInverseInertia;
+                secondBody->angle -= angularLambda * secondInverseInertia;
+            }
+            continue;
+        }
         const float distance = length(delta);
         const Vec2 normal = distance > 1.0e-6F ? delta / distance : Vec2 {1.0F, 0.0F};
         const float firstNormalArm = math::cross(firstArm, normal);
@@ -1344,6 +1412,38 @@ void World::step(const float deltaTime) {
                 secondBody->linearVelocity += impulse * secondInverseMass;
                 firstBody->angularVelocity -= firstInverseInertia * math::cross(firstArm, impulse);
                 secondBody->angularVelocity += secondInverseInertia * math::cross(secondArm, impulse);
+                continue;
+            }
+            if (joint.type == JointType::Prismatic) {
+                const Vec2 axis = rotate(joint.localAxisA, firstBody->angle);
+                const Vec2 normal {-axis.y, axis.x};
+                const float firstNormalArm = math::cross(firstArm, normal);
+                const float secondNormalArm = math::cross(secondArm, normal);
+                const float effectiveMass = firstInverseMass + secondInverseMass +
+                    firstInverseInertia * firstNormalArm * firstNormalArm +
+                    secondInverseInertia * secondNormalArm * secondNormalArm;
+                if (effectiveMass > 1.0e-6F) {
+                    const Vec2 firstPointVelocity = firstBody->linearVelocity +
+                        math::cross(firstBody->angularVelocity, firstArm);
+                    const Vec2 secondPointVelocity = secondBody->linearVelocity +
+                        math::cross(secondBody->angularVelocity, secondArm);
+                    const float impulseMagnitude =
+                        -dot(secondPointVelocity - firstPointVelocity, normal) / effectiveMass;
+                    const Vec2 impulse = normal * impulseMagnitude;
+                    firstBody->linearVelocity -= impulse * firstInverseMass;
+                    secondBody->linearVelocity += impulse * secondInverseMass;
+                    firstBody->angularVelocity -= firstInverseInertia *
+                        math::cross(firstArm, impulse);
+                    secondBody->angularVelocity += secondInverseInertia *
+                        math::cross(secondArm, impulse);
+                }
+                const float angularMass = firstInverseInertia + secondInverseInertia;
+                if (angularMass > 1.0e-6F) {
+                    const float impulse = -(secondBody->angularVelocity -
+                        firstBody->angularVelocity) / angularMass;
+                    firstBody->angularVelocity -= impulse * firstInverseInertia;
+                    secondBody->angularVelocity += impulse * secondInverseInertia;
+                }
                 continue;
             }
             const float distance = length(delta);

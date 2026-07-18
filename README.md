@@ -62,6 +62,7 @@ For a short non-interactive graphics smoke test, use:
 - Configurable sleeping and explicit wake-up for inactive dynamic bodies
 - Distance joints with local anchors and deterministic sequential-impulse solving
 - Revolute joints with free angular motion around coincident local anchors
+- Prismatic joints with free travel along a local axis
 - Bullet CCD for high-speed circular dynamic bodies against static or kinematic geometry
 - Deterministic per-pair contact-impulse caching and warm starting
 - Circle, oriented-box, and convex-polygon contacts with SAT (up to 8 vertices)
