@@ -221,7 +221,7 @@ and circles are expressed in world metres and scaled by camera zoom.
 | Backend | Role | Notes |
 | --- | --- | --- |
 | `SoftwareRenderer` | Reference and testing backend | Rasterizes primitives to an in-memory image with no platform dependency. |
-| `OpenGLRenderer` | GPU primitive backend | OpenGL 3.3 Core, shader-based colored geometry, and dynamic vertex batching. |
+| `OpenGLRenderer` | GPU primitive and sprite backend | OpenGL 3.3 Core, shader-based colored geometry, textures, and dynamic vertex batching. |
 | `NullRenderer` | Headless tests and servers | Accepts draw lists without creating a GPU context. |
 | `VulkanRenderer` | Optional high-scale backend | Uses the same draw-list contract when a lower-level GPU backend is needed. |
 | `DebugRenderer` | Physics diagnostics | Draws AABBs, contacts, normals, joints, and sleeping bodies. |

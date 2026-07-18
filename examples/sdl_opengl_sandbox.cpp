@@ -25,6 +25,7 @@ render2d::render::GlProcAddress resolveOpenGl(const char* const name) {
 void populateDrawList(
     const render2d::physics::World& world,
     const std::vector<render2d::physics::BodyId>& balls,
+    const render2d::render::SpriteRegion& sprite,
     render2d::render::DrawList& drawList) {
     drawList.clear();
     drawList.addRectangle(
@@ -47,6 +48,9 @@ void populateDrawList(
         const render2d::physics::BodyState* const state = world.body(balls[index]);
         if (state != nullptr) {
             drawList.addCircle(state->position, 0.32F, palette[index % palette.size()], 1,
+                               static_cast<std::uint64_t>(index));
+            drawList.addSprite(sprite, state->position, {0.12F, 0.12F},
+                               render2d::render::Color {}, 2,
                                static_cast<std::uint64_t>(index));
         }
     }
@@ -141,6 +145,15 @@ int main(const int argc, char* argv[]) {
         camera.setPosition({0.0F, 0.0F});
         render2d::render::OpenGlRenderer renderer {resolveOpenGl};
         render2d::render::DrawList drawList;
+        render2d::render::Image spriteImage {2U, 2U};
+        spriteImage.setPixel(0U, 0U, render2d::render::Color::rgb(255, 255, 255));
+        spriteImage.setPixel(1U, 0U, render2d::render::Color::rgb(255, 220, 90));
+        spriteImage.setPixel(0U, 1U, render2d::render::Color::rgb(80, 160, 255));
+        spriteImage.setPixel(1U, 1U, render2d::render::Color::rgb(255, 110, 170));
+        render2d::render::Texture spriteTexture {std::move(spriteImage)};
+        render2d::render::SpriteAtlas spriteAtlas {spriteTexture};
+        const render2d::render::SpriteRegion& sprite = spriteAtlas.add(
+            "ball-marker", {.x = 0U, .y = 0U, .width = 2U, .height = 2U});
         bool running = true;
         int renderedFrames = 0;
         std::uint64_t previousTicks = SDL_GetTicks();
@@ -173,7 +186,7 @@ int main(const int argc, char* argv[]) {
                 accumulator -= fixedStep;
             }
 
-            populateDrawList(world, balls, drawList);
+            populateDrawList(world, balls, sprite, drawList);
             renderer.render(drawList, camera);
             if (!SDL_GL_SwapWindow(window)) {
                 throw std::runtime_error(SDL_GetError());

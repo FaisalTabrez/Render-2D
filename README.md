@@ -65,6 +65,16 @@ For a short non-interactive graphics smoke test, use:
 - Camera pan, zoom, and rotation; alpha compositing; portable PPM frame output
 - SDL native-window sandbox with a reproducible vcpkg manifest
 - Direct OpenGL 3.3 primitive backend with a three-frame smoke-test mode
+- Texture assets from binary PPM files, named atlas regions, sprites, and
+  tile-map draw submission through either backend
+
+## Sprite assets and tile maps
+
+`TextureLibrary` owns image-backed textures, `SpriteAtlas` maps names to pixel
+regions, and `TileMap` emits layer-sorted sprite commands. The software and
+OpenGL renderers use the same `DrawList` commands. The current loader supports
+binary P6 PPM images; PNG and compressed image decoding are the next asset
+pipeline addition.
 
 ## Current API
 

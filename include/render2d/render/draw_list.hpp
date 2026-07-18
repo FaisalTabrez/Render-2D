@@ -2,6 +2,7 @@
 
 #include "render2d/math/vec2.hpp"
 #include "render2d/render/color.hpp"
+#include "render2d/render/sprite_atlas.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -14,6 +15,7 @@ enum class PrimitiveType {
     Circle,
     Rectangle,
     Line,
+    Sprite,
 };
 
 struct DrawCommand {
@@ -26,6 +28,9 @@ struct DrawCommand {
     float radius {0.0F};
     float thickness {1.0F};
     Color color {};
+    const Texture* texture {nullptr};
+    math::Vec2 uvMin {0.0F, 0.0F};
+    math::Vec2 uvMax {1.0F, 1.0F};
 };
 
 class DrawList {
@@ -79,6 +84,26 @@ public:
             .end = to,
             .thickness = thickness,
             .color = color,
+        });
+    }
+
+    void addSprite(
+        const SpriteRegion& region,
+        const math::Vec2 center,
+        const math::Vec2 halfExtents,
+        const Color tint = {},
+        const std::int32_t layer = 0,
+        const std::uint64_t sortKey = 0U) {
+        commands_.push_back({
+            .primitive = PrimitiveType::Sprite,
+            .layer = layer,
+            .sortKey = sortKey,
+            .center = center,
+            .extent = halfExtents,
+            .color = tint,
+            .texture = region.texture,
+            .uvMin = region.uvMin,
+            .uvMax = region.uvMax,
         });
     }
 

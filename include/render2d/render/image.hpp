@@ -13,6 +13,8 @@ class Image {
 public:
     Image(std::uint32_t width, std::uint32_t height, Color fill = {});
 
+    [[nodiscard]] static Image readPpm(const std::filesystem::path& path);
+
     [[nodiscard]] std::uint32_t width() const noexcept;
     [[nodiscard]] std::uint32_t height() const noexcept;
     [[nodiscard]] const Color& pixel(std::uint32_t x, std::uint32_t y) const;

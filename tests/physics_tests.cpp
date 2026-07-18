@@ -1,8 +1,10 @@
 #include "render2d/physics/world.hpp"
 #include "render2d/render/software_renderer.hpp"
+#include "render2d/render/tile_map.hpp"
 
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
 using namespace render2d::physics;
@@ -182,6 +184,51 @@ void testCameraRoundTripAndSoftwareRenderer() {
     assert(image.pixel(64U - 1U, 32U) == render2d::render::Color::rgb(20, 200, 90));
 }
 
+void testTexturesSpritesAtlasesAndTileMaps() {
+    using namespace render2d::render;
+
+    Image source {2U, 2U};
+    source.setPixel(0U, 0U, Color::rgb(240, 30, 20));
+    source.setPixel(1U, 0U, Color::rgb(30, 230, 40));
+    source.setPixel(0U, 1U, Color::rgb(35, 70, 245));
+    source.setPixel(1U, 1U, Color::rgb(245, 210, 30));
+
+    const std::filesystem::path texturePath = "render2d_test_texture.ppm";
+    source.writePpm(texturePath);
+    const Image loaded = Image::readPpm(texturePath);
+    std::filesystem::remove(texturePath);
+    assert(loaded.pixel(0U, 0U) == Color::rgb(240, 30, 20));
+    assert(loaded.pixel(1U, 1U) == Color::rgb(245, 210, 30));
+
+    Texture texture {loaded};
+    SpriteAtlas atlas {texture};
+    const SpriteRegion& whole = atlas.add("whole", {.x = 0U, .y = 0U, .width = 2U, .height = 2U});
+    const SpriteRegion& topRight = atlas.add("top-right", {.x = 1U, .y = 0U, .width = 1U, .height = 1U});
+    assert(atlas.find("top-right") == &topRight);
+
+    Camera2D camera {64U, 64U, 16.0F};
+    camera.setClearColor(Color::rgb(1, 2, 3));
+    DrawList drawList;
+    drawList.addSprite(whole, {0.0F, 0.0F}, {1.0F, 1.0F});
+    Image rendered {64U, 64U};
+    SoftwareRenderer renderer;
+    renderer.render(drawList, camera, rendered);
+    assert(rendered.pixel(20U, 20U) == Color::rgb(240, 30, 20));
+    assert(rendered.pixel(44U, 20U) == Color::rgb(30, 230, 40));
+    assert(rendered.pixel(20U, 44U) == Color::rgb(35, 70, 245));
+    assert(rendered.pixel(44U, 44U) == Color::rgb(245, 210, 30));
+
+    TileMap tileMap {2U, 1U, {1.0F, 1.0F}};
+    tileMap.set(0U, 0U, &whole);
+    tileMap.set(1U, 0U, &topRight);
+    drawList.clear();
+    tileMap.appendTo(drawList, {-1.0F, 0.5F}, 3, 9U);
+    assert(drawList.commands().size() == 2U);
+    assert(drawList.commands()[0].primitive == PrimitiveType::Sprite);
+    assert(drawList.commands()[0].sortKey == 9U);
+    assert(drawList.commands()[1].sortKey == 10U);
+}
+
 } // namespace
 
 int main() {
@@ -192,5 +239,6 @@ int main() {
     testCircleBoxCollision();
     testFilterAndAabbQuery();
     testCameraRoundTripAndSoftwareRenderer();
+    testTexturesSpritesAtlasesAndTileMaps();
     std::cout << "All physics tests passed.\n";
 }

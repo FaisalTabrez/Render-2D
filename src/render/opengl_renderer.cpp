@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace render2d::render {
@@ -19,6 +20,17 @@ namespace {
 struct Vertex {
     float x {0.0F};
     float y {0.0F};
+    float red {1.0F};
+    float green {1.0F};
+    float blue {1.0F};
+    float alpha {1.0F};
+};
+
+struct SpriteVertex {
+    float x {0.0F};
+    float y {0.0F};
+    float u {0.0F};
+    float v {0.0F};
     float red {1.0F};
     float green {1.0F};
     float blue {1.0F};
@@ -100,6 +112,50 @@ void appendRectangle(
     appendVertex(vertices, bottomLeft, command.color);
     appendVertex(vertices, topRight, command.color);
     appendVertex(vertices, topLeft, command.color);
+}
+
+void appendSpriteVertex(
+    std::vector<SpriteVertex>& vertices,
+    const math::Vec2 position,
+    const math::Vec2 uv,
+    const Color color) {
+    const auto channels = normalizedColor(color);
+    vertices.push_back({
+        .x = position.x,
+        .y = position.y,
+        .u = uv.x,
+        .v = uv.y,
+        .red = channels[0],
+        .green = channels[1],
+        .blue = channels[2],
+        .alpha = channels[3],
+    });
+}
+
+void appendSprite(
+    std::vector<SpriteVertex>& vertices,
+    const DrawCommand& command,
+    const Camera2D& camera) {
+    const math::Vec2 bottomLeft = toClipSpace(command.center - command.extent, camera);
+    const math::Vec2 bottomRight = toClipSpace({
+        .x = command.center.x + command.extent.x,
+        .y = command.center.y - command.extent.y,
+    }, camera);
+    const math::Vec2 topRight = toClipSpace(command.center + command.extent, camera);
+    const math::Vec2 topLeft = toClipSpace({
+        .x = command.center.x - command.extent.x,
+        .y = command.center.y + command.extent.y,
+    }, camera);
+    const math::Vec2 bottomLeftUv {command.uvMin.x, command.uvMax.y};
+    const math::Vec2 bottomRightUv {command.uvMax.x, command.uvMax.y};
+    const math::Vec2 topRightUv {command.uvMax.x, command.uvMin.y};
+    const math::Vec2 topLeftUv {command.uvMin.x, command.uvMin.y};
+    appendSpriteVertex(vertices, bottomLeft, bottomLeftUv, command.color);
+    appendSpriteVertex(vertices, bottomRight, bottomRightUv, command.color);
+    appendSpriteVertex(vertices, topRight, topRightUv, command.color);
+    appendSpriteVertex(vertices, bottomLeft, bottomLeftUv, command.color);
+    appendSpriteVertex(vertices, topRight, topRightUv, command.color);
+    appendSpriteVertex(vertices, topLeft, topLeftUv, command.color);
 }
 
 void appendLine(
@@ -196,8 +252,17 @@ public:
         enable_ = load<PFNGLENABLEPROC>(resolver, "glEnable");
         blendFunc_ = load<PFNGLBLENDFUNCPROC>(resolver, "glBlendFunc");
         drawArrays_ = load<PFNGLDRAWARRAYSPROC>(resolver, "glDrawArrays");
+        genTextures_ = load<PFNGLGENTEXTURESPROC>(resolver, "glGenTextures");
+        bindTexture_ = load<PFNGLBINDTEXTUREPROC>(resolver, "glBindTexture");
+        texImage2D_ = load<PFNGLTEXIMAGE2DPROC>(resolver, "glTexImage2D");
+        texParameteri_ = load<PFNGLTEXPARAMETERIPROC>(resolver, "glTexParameteri");
+        deleteTextures_ = load<PFNGLDELETETEXTURESPROC>(resolver, "glDeleteTextures");
+        activeTexture_ = load<PFNGLACTIVETEXTUREPROC>(resolver, "glActiveTexture");
+        getUniformLocation_ = load<PFNGLGETUNIFORMLOCATIONPROC>(resolver, "glGetUniformLocation");
+        uniform1i_ = load<PFNGLUNIFORM1IPROC>(resolver, "glUniform1i");
 
         program_ = createProgram();
+        spriteProgram_ = createSpriteProgram();
         genVertexArrays_(1, &vertexArray_);
         genBuffers_(1, &vertexBuffer_);
         bindVertexArray_(vertexArray_);
@@ -207,11 +272,36 @@ public:
         enableVertexAttribArray_(1U);
         vertexAttribPointer_(1U, 4, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(sizeof(Vertex)),
                              reinterpret_cast<void*>(offsetof(Vertex, red)));
+
+        genVertexArrays_(1, &spriteVertexArray_);
+        genBuffers_(1, &spriteVertexBuffer_);
+        bindVertexArray_(spriteVertexArray_);
+        bindBuffer_(GL_ARRAY_BUFFER, spriteVertexBuffer_);
+        enableVertexAttribArray_(0U);
+        vertexAttribPointer_(0U, 2, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(sizeof(SpriteVertex)), nullptr);
+        enableVertexAttribArray_(1U);
+        vertexAttribPointer_(1U, 2, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(sizeof(SpriteVertex)),
+                             reinterpret_cast<void*>(offsetof(SpriteVertex, u)));
+        enableVertexAttribArray_(2U);
+        vertexAttribPointer_(2U, 4, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(sizeof(SpriteVertex)),
+                             reinterpret_cast<void*>(offsetof(SpriteVertex, red)));
+        useProgram_(spriteProgram_);
+        textureSamplerLocation_ = getUniformLocation_(spriteProgram_, "spriteTexture");
         enable_(GL_BLEND);
         blendFunc_(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
     ~Impl() {
+        for (const auto& [texture, glTexture] : textures_) {
+            static_cast<void>(texture);
+            deleteTextures_(1, &glTexture);
+        }
+        if (spriteVertexBuffer_ != 0U) {
+            deleteBuffers_(1, &spriteVertexBuffer_);
+        }
+        if (spriteVertexArray_ != 0U) {
+            deleteVertexArrays_(1, &spriteVertexArray_);
+        }
         if (vertexBuffer_ != 0U) {
             deleteBuffers_(1, &vertexBuffer_);
         }
@@ -220,6 +310,9 @@ public:
         }
         if (program_ != 0U) {
             deleteProgram_(program_);
+        }
+        if (spriteProgram_ != 0U) {
+            deleteProgram_(spriteProgram_);
         }
     }
 
@@ -237,22 +330,58 @@ public:
                                                 : first.layer < second.layer;
         });
 
-        std::vector<Vertex> vertices;
-        vertices.reserve(commands.size() * 6U);
+        std::vector<Vertex> coloredVertices;
+        std::vector<SpriteVertex> spriteVertices;
+        coloredVertices.reserve(commands.size() * 6U);
+        spriteVertices.reserve(commands.size() * 6U);
+        const Texture* spriteTexture = nullptr;
+        const auto flushColored = [this, &coloredVertices]() {
+            drawColored(coloredVertices);
+            coloredVertices.clear();
+        };
+        const auto flushSprites = [this, &spriteVertices, &spriteTexture]() {
+            if (spriteTexture != nullptr) {
+                drawSprites(spriteVertices, *spriteTexture);
+            }
+            spriteVertices.clear();
+        };
+
         for (const DrawCommand& command : commands) {
+            if (command.primitive == PrimitiveType::Sprite) {
+                if (command.texture == nullptr) {
+                    continue;
+                }
+                flushColored();
+                if (spriteTexture != command.texture) {
+                    flushSprites();
+                    spriteTexture = command.texture;
+                }
+                appendSprite(spriteVertices, command, camera);
+                continue;
+            }
+
+            flushSprites();
             switch (command.primitive) {
             case PrimitiveType::Circle:
-                appendCircle(vertices, command, camera);
+                appendCircle(coloredVertices, command, camera);
                 break;
             case PrimitiveType::Rectangle:
-                appendRectangle(vertices, command, camera);
+                appendRectangle(coloredVertices, command, camera);
                 break;
             case PrimitiveType::Line:
-                appendLine(vertices, command, camera);
+                appendLine(coloredVertices, command, camera);
+                break;
+            case PrimitiveType::Sprite:
                 break;
             }
         }
 
+        flushColored();
+        flushSprites();
+    }
+
+private:
+    void drawColored(const std::vector<Vertex>& vertices) const {
         if (vertices.empty()) {
             return;
         }
@@ -265,7 +394,43 @@ public:
         drawArrays_(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()));
     }
 
-private:
+    void drawSprites(const std::vector<SpriteVertex>& vertices, const Texture& texture) {
+        if (vertices.empty()) {
+            return;
+        }
+        useProgram_(spriteProgram_);
+        activeTexture_(GL_TEXTURE0);
+        bindTexture_(GL_TEXTURE_2D, glTexture(texture));
+        uniform1i_(textureSamplerLocation_, 0);
+        bindVertexArray_(spriteVertexArray_);
+        bindBuffer_(GL_ARRAY_BUFFER, spriteVertexBuffer_);
+        bufferData_(GL_ARRAY_BUFFER,
+                    static_cast<GLsizeiptr>(vertices.size() * sizeof(SpriteVertex)),
+                    vertices.data(), GL_DYNAMIC_DRAW);
+        drawArrays_(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()));
+    }
+
+    [[nodiscard]] GLuint glTexture(const Texture& texture) {
+        if (const auto iterator = textures_.find(&texture); iterator != textures_.end()) {
+            return iterator->second;
+        }
+
+        GLuint textureId = 0U;
+        genTextures_(1, &textureId);
+        activeTexture_(GL_TEXTURE0);
+        bindTexture_(GL_TEXTURE_2D, textureId);
+        texParameteri_(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        texParameteri_(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        texParameteri_(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        texParameteri_(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        const Image& image = texture.image();
+        texImage2D_(GL_TEXTURE_2D, 0, GL_RGBA,
+                    static_cast<GLsizei>(image.width()), static_cast<GLsizei>(image.height()), 0,
+                    GL_RGBA, GL_UNSIGNED_BYTE, image.pixels().data());
+        textures_.emplace(&texture, textureId);
+        return textureId;
+    }
+
     template <typename Function>
     [[nodiscard]] static Function load(
         const GlProcAddressResolver resolver,
@@ -330,6 +495,50 @@ private:
         throw std::runtime_error("OpenGL program link failed: " + log);
     }
 
+    [[nodiscard]] GLuint createSpriteProgram() const {
+        constexpr const char* vertexSource = R"(
+            #version 330 core
+            layout (location = 0) in vec2 inPosition;
+            layout (location = 1) in vec2 inUv;
+            layout (location = 2) in vec4 inColor;
+            out vec2 uv;
+            out vec4 color;
+            void main() {
+                gl_Position = vec4(inPosition, 0.0, 1.0);
+                uv = inUv;
+                color = inColor;
+            }
+        )";
+        constexpr const char* fragmentSource = R"(
+            #version 330 core
+            in vec2 uv;
+            in vec4 color;
+            uniform sampler2D spriteTexture;
+            out vec4 outColor;
+            void main() {
+                outColor = texture(spriteTexture, uv) * color;
+            }
+        )";
+
+        const GLuint vertexShader = compile(GL_VERTEX_SHADER, vertexSource);
+        const GLuint fragmentShader = compile(GL_FRAGMENT_SHADER, fragmentSource);
+        const GLuint program = createProgram_();
+        attachShader_(program, vertexShader);
+        attachShader_(program, fragmentShader);
+        linkProgram_(program);
+        deleteShader_(vertexShader);
+        deleteShader_(fragmentShader);
+
+        GLint linked = GL_FALSE;
+        getProgramiv_(program, GL_LINK_STATUS, &linked);
+        if (linked == GL_TRUE) {
+            return program;
+        }
+        const std::string log = programLog(program, getProgramiv_, getProgramInfoLog_);
+        deleteProgram_(program);
+        throw std::runtime_error("OpenGL sprite program link failed: " + log);
+    }
+
     PFNGLCREATESHADERPROC createShader_ {nullptr};
     PFNGLSHADERSOURCEPROC shaderSource_ {nullptr};
     PFNGLCOMPILESHADERPROC compileShader_ {nullptr};
@@ -358,9 +567,22 @@ private:
     PFNGLENABLEPROC enable_ {nullptr};
     PFNGLBLENDFUNCPROC blendFunc_ {nullptr};
     PFNGLDRAWARRAYSPROC drawArrays_ {nullptr};
+    PFNGLGENTEXTURESPROC genTextures_ {nullptr};
+    PFNGLBINDTEXTUREPROC bindTexture_ {nullptr};
+    PFNGLTEXIMAGE2DPROC texImage2D_ {nullptr};
+    PFNGLTEXPARAMETERIPROC texParameteri_ {nullptr};
+    PFNGLDELETETEXTURESPROC deleteTextures_ {nullptr};
+    PFNGLACTIVETEXTUREPROC activeTexture_ {nullptr};
+    PFNGLGETUNIFORMLOCATIONPROC getUniformLocation_ {nullptr};
+    PFNGLUNIFORM1IPROC uniform1i_ {nullptr};
     GLuint program_ {0U};
+    GLuint spriteProgram_ {0U};
     GLuint vertexArray_ {0U};
     GLuint vertexBuffer_ {0U};
+    GLuint spriteVertexArray_ {0U};
+    GLuint spriteVertexBuffer_ {0U};
+    GLint textureSamplerLocation_ {-1};
+    std::unordered_map<const Texture*, GLuint> textures_;
 };
 
 OpenGlRenderer::OpenGlRenderer(const GlProcAddressResolver resolveProcAddress)
