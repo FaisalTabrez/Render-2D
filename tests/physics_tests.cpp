@@ -45,6 +45,27 @@ void testAngularMotion() {
     assert(state->angularVelocity > 1.4F);
 }
 
+void testSleepAndWake() {
+    World world {{
+        .gravity = {0.0F, 0.0F},
+        .sleepDelay = 0.1F,
+    }};
+    const BodyId body = world.createBody({
+        .type = BodyType::Dynamic,
+        .mass = 1.0F,
+    });
+    world.step(0.11F);
+    const BodyState* const state = world.body(body);
+    assert(state != nullptr);
+    assert(state->asleep);
+    assert(world.stats().sleepingBodies == 1U);
+
+    assert(world.applyForce(body, {2.0F, 0.0F}));
+    assert(!state->asleep);
+    world.step(0.1F);
+    assert(state->position.x > 0.0F);
+}
+
 void testCircleContactLifecycle() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId anchor = world.createBody({
@@ -304,6 +325,7 @@ void testTexturesSpritesAtlasesAndTileMaps() {
 int main() {
     testGravity();
     testAngularMotion();
+    testSleepAndWake();
     testCircleContactLifecycle();
     testSensorDoesNotCorrectPosition();
     testBoxContactAndBroadPhaseStats();

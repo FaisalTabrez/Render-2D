@@ -65,6 +65,9 @@ struct WorldSettings {
     std::uint32_t velocityIterations {8};
     float penetrationSlop {0.005F};
     float positionCorrection {0.8F};
+    float sleepLinearThreshold {0.05F};
+    float sleepAngularThreshold {0.05F};
+    float sleepDelay {0.5F};
 };
 
 struct BodyDefinition {
@@ -113,6 +116,8 @@ struct BodyState {
     float angularDamping {0.0F};
     float gravityScale {1.0F};
     bool fixedRotation {false};
+    bool asleep {false};
+    float sleepDuration {0.0F};
 };
 
 struct ContactEvent {
@@ -131,6 +136,7 @@ struct WorldStats {
     std::size_t broadPhaseCandidatePairs {0};
     std::size_t narrowPhaseTests {0};
     std::size_t activeContacts {0};
+    std::size_t sleepingBodies {0};
 };
 
 class World {
@@ -152,6 +158,7 @@ public:
     [[nodiscard]] bool applyForce(BodyId id, Vec2 force) noexcept;
     [[nodiscard]] bool applyForceAtPoint(BodyId id, Vec2 force, Vec2 worldPoint) noexcept;
     [[nodiscard]] bool applyTorque(BodyId id, float torque) noexcept;
+    [[nodiscard]] bool wake(BodyId id) noexcept;
 
     [[nodiscard]] std::vector<FixtureId> queryAabb(const Aabb& bounds) const;
 

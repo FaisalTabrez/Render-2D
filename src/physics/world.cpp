@@ -73,7 +73,8 @@ using math::rotate;
 World::World(WorldSettings settings) : settings_(settings) {
     if (!isFinite(settings_.gravity) || settings_.velocityIterations == 0U ||
         settings_.penetrationSlop < 0.0F || settings_.positionCorrection < 0.0F ||
-        settings_.positionCorrection > 1.0F) {
+        settings_.positionCorrection > 1.0F || settings_.sleepLinearThreshold < 0.0F ||
+        settings_.sleepAngularThreshold < 0.0F || settings_.sleepDelay < 0.0F) {
         throw std::invalid_argument("WorldSettings contains an invalid value");
     }
 }
@@ -235,6 +236,8 @@ bool World::setLinearVelocity(const BodyId id, const Vec2 velocity) noexcept {
     }
 
     state->linearVelocity = velocity;
+    state->asleep = false;
+    state->sleepDuration = 0.0F;
     return true;
 }
 
@@ -244,6 +247,8 @@ bool World::setAngularVelocity(const BodyId id, const float angularVelocity) noe
         return false;
     }
     state->angularVelocity = angularVelocity;
+    state->asleep = false;
+    state->sleepDuration = 0.0F;
     return true;
 }
 
@@ -254,6 +259,8 @@ bool World::applyForce(const BodyId id, const Vec2 force) noexcept {
     }
 
     slot->force += force;
+    slot->value->asleep = false;
+    slot->value->sleepDuration = 0.0F;
     return true;
 }
 
@@ -265,6 +272,8 @@ bool World::applyForceAtPoint(const BodyId id, const Vec2 force, const Vec2 worl
     }
     slot->force += force;
     slot->torque += math::cross(worldPoint - slot->value->position, force);
+    slot->value->asleep = false;
+    slot->value->sleepDuration = 0.0F;
     return true;
 }
 
@@ -274,6 +283,18 @@ bool World::applyTorque(const BodyId id, const float torque) noexcept {
         return false;
     }
     slot->torque += torque;
+    slot->value->asleep = false;
+    slot->value->sleepDuration = 0.0F;
+    return true;
+}
+
+bool World::wake(const BodyId id) noexcept {
+    BodyState* const state = body(id);
+    if (state == nullptr) {
+        return false;
+    }
+    state->asleep = false;
+    state->sleepDuration = 0.0F;
     return true;
 }
 
@@ -309,6 +330,12 @@ void World::step(const float deltaTime) {
         BodyState& state = *slot.value;
         state.previousPosition = state.position;
         state.previousAngle = state.angle;
+        if (state.type == BodyType::Dynamic && state.asleep) {
+            ++stats_.sleepingBodies;
+            slot.force = {};
+            slot.torque = 0.0F;
+            continue;
+        }
         if (state.type == BodyType::Dynamic) {
             const float invMass = inverseMass(state);
             state.linearVelocity +=
@@ -650,6 +677,29 @@ void World::step(const float deltaTime) {
     }
     activeContacts_ = std::move(currentContacts);
     stats_.activeContacts = activeContacts_.size();
+
+    for (BodySlot& slot : bodies_) {
+        if (!slot.value.has_value() || slot.value->type != BodyType::Dynamic) {
+            continue;
+        }
+        BodyState& state = *slot.value;
+        if (lengthSquared(state.linearVelocity) <=
+                settings_.sleepLinearThreshold * settings_.sleepLinearThreshold &&
+            std::abs(state.angularVelocity) <= settings_.sleepAngularThreshold) {
+            state.sleepDuration += deltaTime;
+            if (state.sleepDuration >= settings_.sleepDelay) {
+                if (!state.asleep) {
+                    ++stats_.sleepingBodies;
+                }
+                state.asleep = true;
+                state.linearVelocity = {};
+                state.angularVelocity = 0.0F;
+            }
+        } else {
+            state.asleep = false;
+            state.sleepDuration = 0.0F;
+        }
+    }
 }
 
 std::span<const ContactEvent> World::contactEvents() const noexcept {

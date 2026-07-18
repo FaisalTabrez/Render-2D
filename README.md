@@ -59,6 +59,7 @@ For a short non-interactive graphics smoke test, use:
 
 - Fixed-timestep dynamic, kinematic, and static bodies
 - Angular velocity, torque, damping, and off-center force application
+- Configurable sleeping and explicit wake-up for inactive dynamic bodies
 - Circle, oriented-box, and circle–box contact generation with SAT
 - Deterministic sweep-and-prune AABB broad phase, collision layers, AABB queries, friction, restitution,
   force integration, and contact lifecycle events

@@ -146,9 +146,9 @@ tune them per game without changing solver code.
 ### 5.4 Stability features
 
 - **Warm starting:** carry matching contact impulses between steps.
-- **Sleeping:** sleep stable islands after a configurable time; wake when a
-  force, velocity change, kinematic impact, or connected awake body requires
-  it.
+- **Sleeping:** sleep stable dynamic bodies after a configurable time; wake on
+  force, torque, or an explicit velocity change. Island-wide wake propagation
+  follows with joints and contact caching.
 - **Continuous collision detection:** a `bullet` dynamic body uses swept AABB
   broad-phase candidates and a time-of-impact shape cast against static or
   kinematic fixtures. Resolve the earliest impact, then finish the remaining
