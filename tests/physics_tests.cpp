@@ -547,6 +547,28 @@ void testSweepAndPruneSkipsSparsePairs() {
     assert(world.stats().narrowPhaseTests == 0U);
 }
 
+void testThousandBodySparseStressScene() {
+    World world {{.gravity = {0.0F, 0.0F}, .sleepDelay = 0.05F}};
+    for (int index = 0; index < 1000; ++index) {
+        const BodyId body = world.createBody({
+            .type = BodyType::Dynamic,
+            .position = {
+                static_cast<float>(index % 40) * 3.0F,
+                static_cast<float>(index / 40) * 3.0F,
+            },
+            .mass = 1.0F,
+        });
+        static_cast<void>(world.createCircleFixture(body, {.radius = 0.25F}));
+    }
+    for (int step = 0; step < 12; ++step) {
+        world.step(1.0F / 120.0F);
+    }
+    assert(world.stats().activeBodies == 1000U);
+    assert(world.stats().activeFixtures == 1000U);
+    assert(world.stats().broadPhasePairTests == 0U);
+    assert(world.stats().sleepingBodies == 1000U);
+}
+
 void testCameraRoundTripAndSoftwareRenderer() {
     render2d::render::Camera2D camera {64U, 64U, 16.0F};
     camera.setPosition({1.0F, -2.0F});
@@ -660,6 +682,7 @@ int main() {
     testFilterAndAabbQuery();
     testRayCastQuery();
     testSweepAndPruneSkipsSparsePairs();
+    testThousandBodySparseStressScene();
     testCameraRoundTripAndSoftwareRenderer();
     testPhysicsDebugVisualSnapshot();
     testTexturesSpritesAtlasesAndTileMaps();
