@@ -40,6 +40,12 @@ using math::overlaps;
     return body.type == BodyType::Dynamic ? 1.0F / body.mass : 0.0F;
 }
 
+[[nodiscard]] constexpr float inverseInertia(const BodyState& body) noexcept {
+    return body.type == BodyType::Dynamic && !body.fixedRotation
+        ? 1.0F / body.momentOfInertia
+        : 0.0F;
+}
+
 [[nodiscard]] constexpr bool canCollide(
     const CollisionFilter first, const CollisionFilter second) noexcept {
     return (first.maskBits & second.categoryBits) != 0U &&
@@ -72,9 +78,13 @@ World::World(WorldSettings settings) : settings_(settings) {
 
 BodyId World::createBody(const BodyDefinition& definition) {
     if (!isFinite(definition.position) || !isFinite(definition.linearVelocity) ||
-        !std::isfinite(definition.mass) || !std::isfinite(definition.linearDamping) ||
+        !std::isfinite(definition.angle) || !std::isfinite(definition.angularVelocity) ||
+        !std::isfinite(definition.mass) || !std::isfinite(definition.momentOfInertia) ||
+        !std::isfinite(definition.linearDamping) || !std::isfinite(definition.angularDamping) ||
         !std::isfinite(definition.gravityScale) || definition.linearDamping < 0.0F ||
-        (definition.type == BodyType::Dynamic && definition.mass <= 0.0F)) {
+        definition.angularDamping < 0.0F ||
+        (definition.type == BodyType::Dynamic &&
+         (definition.mass <= 0.0F || definition.momentOfInertia <= 0.0F))) {
         throw std::invalid_argument("BodyDefinition contains an invalid value");
     }
 
@@ -83,9 +93,15 @@ BodyId World::createBody(const BodyDefinition& definition) {
         .position = definition.position,
         .previousPosition = definition.position,
         .linearVelocity = definition.linearVelocity,
+        .angle = definition.angle,
+        .previousAngle = definition.angle,
+        .angularVelocity = definition.angularVelocity,
         .mass = definition.type == BodyType::Dynamic ? definition.mass : 0.0F,
+        .momentOfInertia = definition.type == BodyType::Dynamic ? definition.momentOfInertia : 0.0F,
         .linearDamping = definition.linearDamping,
+        .angularDamping = definition.angularDamping,
         .gravityScale = definition.gravityScale,
+        .fixedRotation = definition.fixedRotation,
     };
 
     for (std::uint32_t index = 0; index < bodies_.size(); ++index) {
@@ -93,6 +109,7 @@ BodyId World::createBody(const BodyDefinition& definition) {
         if (!slot.value.has_value()) {
             slot.value = state;
             slot.force = {};
+            slot.torque = 0.0F;
             return {.index = index, .generation = slot.generation};
         }
     }
@@ -116,6 +133,7 @@ bool World::destroyBody(const BodyId id) noexcept {
 
     slot->value.reset();
     slot->force = {};
+    slot->torque = 0.0F;
     slot->generation = nextGeneration(slot->generation);
     return true;
 }
@@ -218,6 +236,15 @@ bool World::setLinearVelocity(const BodyId id, const Vec2 velocity) noexcept {
     return true;
 }
 
+bool World::setAngularVelocity(const BodyId id, const float angularVelocity) noexcept {
+    BodyState* const state = body(id);
+    if (state == nullptr || !std::isfinite(angularVelocity)) {
+        return false;
+    }
+    state->angularVelocity = angularVelocity;
+    return true;
+}
+
 bool World::applyForce(const BodyId id, const Vec2 force) noexcept {
     BodySlot* const slot = bodySlot(id);
     if (slot == nullptr || slot->value->type != BodyType::Dynamic || !isFinite(force)) {
@@ -225,6 +252,26 @@ bool World::applyForce(const BodyId id, const Vec2 force) noexcept {
     }
 
     slot->force += force;
+    return true;
+}
+
+bool World::applyForceAtPoint(const BodyId id, const Vec2 force, const Vec2 worldPoint) noexcept {
+    BodySlot* const slot = bodySlot(id);
+    if (slot == nullptr || slot->value->type != BodyType::Dynamic || !isFinite(force) ||
+        !isFinite(worldPoint)) {
+        return false;
+    }
+    slot->force += force;
+    slot->torque += math::cross(worldPoint - slot->value->position, force);
+    return true;
+}
+
+bool World::applyTorque(const BodyId id, const float torque) noexcept {
+    BodySlot* const slot = bodySlot(id);
+    if (slot == nullptr || slot->value->type != BodyType::Dynamic || !std::isfinite(torque)) {
+        return false;
+    }
+    slot->torque += torque;
     return true;
 }
 
@@ -259,16 +306,21 @@ void World::step(const float deltaTime) {
         ++stats_.activeBodies;
         BodyState& state = *slot.value;
         state.previousPosition = state.position;
+        state.previousAngle = state.angle;
         if (state.type == BodyType::Dynamic) {
             const float invMass = inverseMass(state);
             state.linearVelocity +=
                 (settings_.gravity * state.gravityScale + slot.force * invMass) * deltaTime;
             state.linearVelocity *= 1.0F / (1.0F + state.linearDamping * deltaTime);
+            state.angularVelocity += slot.torque * inverseInertia(state) * deltaTime;
+            state.angularVelocity *= 1.0F / (1.0F + state.angularDamping * deltaTime);
         }
         if (movesWithVelocity(state.type)) {
             state.position += state.linearVelocity * deltaTime;
+            state.angle += state.angularVelocity * deltaTime;
         }
         slot.force = {};
+        slot.torque = 0.0F;
     }
 
     struct BroadPhaseEntry {

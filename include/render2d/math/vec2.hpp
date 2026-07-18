@@ -64,6 +64,20 @@ struct Vec2 {
     return dot(value, value);
 }
 
+[[nodiscard]] constexpr float cross(const Vec2 first, const Vec2 second) noexcept {
+    return first.x * second.y - first.y * second.x;
+}
+
+[[nodiscard]] constexpr Vec2 cross(const float scalar, const Vec2 value) noexcept {
+    return {-scalar * value.y, scalar * value.x};
+}
+
+[[nodiscard]] inline Vec2 rotate(const Vec2 value, const float angle) noexcept {
+    const float cosine = std::cos(angle);
+    const float sine = std::sin(angle);
+    return {cosine * value.x - sine * value.y, sine * value.x + cosine * value.y};
+}
+
 [[nodiscard]] inline float length(const Vec2 value) noexcept {
     return std::sqrt(lengthSquared(value));
 }

@@ -71,9 +71,14 @@ struct BodyDefinition {
     BodyType type {BodyType::Static};
     Vec2 position {};
     Vec2 linearVelocity {};
+    float angle {0.0F};
+    float angularVelocity {0.0F};
     float mass {1.0F};
+    float momentOfInertia {1.0F};
     float linearDamping {0.0F};
+    float angularDamping {0.0F};
     float gravityScale {1.0F};
+    bool fixedRotation {false};
 };
 
 struct CircleFixtureDefinition {
@@ -99,9 +104,15 @@ struct BodyState {
     Vec2 position {};
     Vec2 previousPosition {};
     Vec2 linearVelocity {};
+    float angle {0.0F};
+    float previousAngle {0.0F};
+    float angularVelocity {0.0F};
     float mass {0.0F};
+    float momentOfInertia {0.0F};
     float linearDamping {0.0F};
+    float angularDamping {0.0F};
     float gravityScale {1.0F};
+    bool fixedRotation {false};
 };
 
 struct ContactEvent {
@@ -136,7 +147,10 @@ public:
     [[nodiscard]] BodyState* body(BodyId id) noexcept;
     [[nodiscard]] const BodyState* body(BodyId id) const noexcept;
     [[nodiscard]] bool setLinearVelocity(BodyId id, Vec2 velocity) noexcept;
+    [[nodiscard]] bool setAngularVelocity(BodyId id, float angularVelocity) noexcept;
     [[nodiscard]] bool applyForce(BodyId id, Vec2 force) noexcept;
+    [[nodiscard]] bool applyForceAtPoint(BodyId id, Vec2 force, Vec2 worldPoint) noexcept;
+    [[nodiscard]] bool applyTorque(BodyId id, float torque) noexcept;
 
     [[nodiscard]] std::vector<FixtureId> queryAabb(const Aabb& bounds) const;
 
@@ -152,6 +166,7 @@ private:
         std::uint32_t generation {1};
         std::optional<BodyState> value;
         Vec2 force {};
+        float torque {0.0F};
     };
 
     struct Fixture {
@@ -175,6 +190,7 @@ private:
         FixtureId fixtureA {};
         FixtureId fixtureB {};
         Vec2 normal {};
+        Vec2 point {};
         float penetration {0.0F};
         bool sensor {false};
         float accumulatedNormalImpulse {0.0F};

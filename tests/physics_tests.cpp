@@ -26,6 +26,25 @@ void testGravity() {
     assert(std::abs(state->position.y + 0.1F) < 0.0001F);
 }
 
+void testAngularMotion() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId body = world.createBody({
+        .type = BodyType::Dynamic,
+        .momentOfInertia = 2.0F,
+    });
+    assert(world.applyTorque(body, 4.0F));
+    world.step(0.5F);
+
+    const BodyState* const state = world.body(body);
+    assert(state != nullptr);
+    assert(std::abs(state->angularVelocity - 1.0F) < 0.0001F);
+    assert(std::abs(state->angle - 0.5F) < 0.0001F);
+
+    assert(world.applyForceAtPoint(body, {0.0F, 2.0F}, {1.0F, 0.0F}));
+    world.step(0.5F);
+    assert(state->angularVelocity > 1.4F);
+}
+
 void testCircleContactLifecycle() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId anchor = world.createBody({
@@ -233,6 +252,7 @@ void testTexturesSpritesAtlasesAndTileMaps() {
 
 int main() {
     testGravity();
+    testAngularMotion();
     testCircleContactLifecycle();
     testSensorDoesNotCorrectPosition();
     testBoxContactAndBroadPhaseStats();
