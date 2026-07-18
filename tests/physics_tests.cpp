@@ -211,6 +211,22 @@ void testFilterAndAabbQuery() {
     assert(world.stats().narrowPhaseTests == 0U);
 }
 
+void testSweepAndPruneSkipsSparsePairs() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    for (int index = 0; index < 16; ++index) {
+        const BodyId body = world.createBody({
+            .type = BodyType::Dynamic,
+            .position = {static_cast<float>(index) * 3.0F, 0.0F},
+            .mass = 1.0F,
+        });
+        static_cast<void>(world.createCircleFixture(body, {.radius = 0.25F}));
+    }
+    world.step(1.0F / 120.0F);
+    assert(world.stats().broadPhasePairTests == 0U);
+    assert(world.stats().broadPhaseCandidatePairs == 0U);
+    assert(world.stats().narrowPhaseTests == 0U);
+}
+
 void testCameraRoundTripAndSoftwareRenderer() {
     render2d::render::Camera2D camera {64U, 64U, 16.0F};
     camera.setPosition({1.0F, -2.0F});
@@ -294,6 +310,7 @@ int main() {
     testCircleBoxCollision();
     testOrientedBoxContacts();
     testFilterAndAabbQuery();
+    testSweepAndPruneSkipsSparsePairs();
     testCameraRoundTripAndSoftwareRenderer();
     testTexturesSpritesAtlasesAndTileMaps();
     std::cout << "All physics tests passed.\n";

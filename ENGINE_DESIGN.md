@@ -26,7 +26,7 @@ engine or a soft-body/fluids simulator.
 | Coordinates | Physics: metres, +Y up, radians | Conventional, unambiguous mechanics. |
 | Display mapping | Camera maps physics +Y-up to screen +Y-down | Rendering does not contaminate physics. |
 | Physics data | Numeric component stores / handles | Avoids allocating object graphs inside hot loops. |
-| Broad phase | Dynamic AABB tree | Efficient for many moving and static colliders. |
+| Broad phase | Sweep-and-prune now; dynamic AABB tree later | Deterministic pruning now, with a future high-churn upgrade path. |
 | Contacts | Sequential-impulse solver with warm starting | Mature, game-ready rigid-body approach. |
 | Reference renderer | Portable software rasterizer | Dependency-free correctness baseline and image-test target. |
 | First GPU renderer | OpenGL 3.3 Core | Small, portable desktop GPU target with sprite batching. |

@@ -60,7 +60,7 @@ For a short non-interactive graphics smoke test, use:
 - Fixed-timestep dynamic, kinematic, and static bodies
 - Angular velocity, torque, damping, and off-center force application
 - Circle, oriented-box, and circle–box contact generation with SAT
-- AABB pair pruning, collision layers, AABB queries, friction, restitution,
+- Deterministic sweep-and-prune AABB broad phase, collision layers, AABB queries, friction, restitution,
   force integration, and contact lifecycle events
 - Stable render layers for circles, rectangles, and lines
 - Camera pan, zoom, and rotation; alpha compositing; portable PPM frame output

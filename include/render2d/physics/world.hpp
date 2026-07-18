@@ -127,6 +127,7 @@ struct ContactEvent {
 struct WorldStats {
     std::size_t activeBodies {0};
     std::size_t activeFixtures {0};
+    std::size_t broadPhasePairTests {0};
     std::size_t broadPhaseCandidatePairs {0};
     std::size_t narrowPhaseTests {0};
     std::size_t activeContacts {0};

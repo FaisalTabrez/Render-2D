@@ -345,6 +345,14 @@ void World::step(const float deltaTime) {
         });
     }
 
+    std::stable_sort(
+        broadPhaseEntries.begin(), broadPhaseEntries.end(), [](const BroadPhaseEntry& first,
+                                                               const BroadPhaseEntry& second) {
+            return first.bounds.min.x == second.bounds.min.x
+                ? fixtureKey(first.id) < fixtureKey(second.id)
+                : first.bounds.min.x < second.bounds.min.x;
+        });
+
     contacts_.clear();
     std::set<std::pair<std::uint64_t, std::uint64_t>> currentContacts;
 
@@ -359,6 +367,10 @@ void World::step(const float deltaTime) {
         for (std::size_t secondIndex = firstIndex + 1U;
              secondIndex < broadPhaseEntries.size(); ++secondIndex) {
             const BroadPhaseEntry& secondEntry = broadPhaseEntries[secondIndex];
+            if (secondEntry.bounds.min.x > firstEntry.bounds.max.x) {
+                break;
+            }
+            ++stats_.broadPhasePairTests;
             const Fixture& second = *secondEntry.fixture;
             const BodyState* const secondBody = body(second.body);
             if (secondBody == nullptr || first.body == second.body ||
@@ -473,7 +485,9 @@ void World::step(const float deltaTime) {
                 continue;
             }
 
-            const auto pair = std::pair {fixtureKey(firstEntry.id), fixtureKey(secondEntry.id)};
+            const std::uint64_t firstKey = fixtureKey(firstEntry.id);
+            const std::uint64_t secondKey = fixtureKey(secondEntry.id);
+            const auto pair = std::pair {std::min(firstKey, secondKey), std::max(firstKey, secondKey)};
             currentContacts.insert(pair);
             const ContactEventType eventType = activeContacts_.contains(pair)
                 ? ContactEventType::Stay
