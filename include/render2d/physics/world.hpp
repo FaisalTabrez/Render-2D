@@ -209,6 +209,8 @@ struct WorldStats {
     std::size_t activeContacts {0};
     std::size_t activeJoints {0};
     std::size_t sleepingBodies {0};
+    std::uint32_t velocitySolverIterations {0};
+    std::uint64_t stepMicroseconds {0};
 };
 
 class World {

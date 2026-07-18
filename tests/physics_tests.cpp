@@ -25,6 +25,7 @@ void testGravity() {
     assert(state != nullptr);
     assert(std::abs(state->linearVelocity.y + 1.0F) < 0.0001F);
     assert(std::abs(state->position.y + 0.1F) < 0.0001F);
+    assert(world.stats().velocitySolverIterations == 8U);
 }
 
 void testAngularMotion() {

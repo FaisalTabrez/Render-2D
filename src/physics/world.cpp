@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <chrono>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -765,8 +766,10 @@ void World::step(const float deltaTime) {
         throw std::invalid_argument("World::step requires a positive finite delta time");
     }
 
+    const auto stepStart = std::chrono::steady_clock::now();
     events_.clear();
     stats_ = {};
+    stats_.velocitySolverIterations = settings_.velocityIterations;
 
     for (const JointSlot& slot : joints_) {
         if (!slot.value.has_value()) {
@@ -1637,6 +1640,10 @@ void World::step(const float deltaTime) {
             state.sleepDuration = 0.0F;
         }
     }
+    stats_.stepMicroseconds = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - stepStart)
+            .count());
 }
 
 std::span<const ContactEvent> World::contactEvents() const noexcept {
