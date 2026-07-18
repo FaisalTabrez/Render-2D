@@ -106,7 +106,8 @@ a shape, local pose, material, collision filter, sensor flag, and `FixtureId`.
 | `dynamic` | Finite mass; moved by forces, collisions, and joints. |
 
 Shapes in the first release are `Circle`, oriented `Box`, and arbitrary convex
-`Polygon` (maximum 8 vertices). A box is represented internally as a polygon.
+`Polygon` (maximum 8 vertices). Boxes and polygons share SAT-based manifold
+generation; concave geometry is decomposed into convex fixtures.
 Capsules, chains, and concave terrain are later additions; concave geometry is
 decomposed into convex fixtures rather than added to the narrow phase.
 

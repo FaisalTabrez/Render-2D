@@ -53,6 +53,7 @@ enum class ContactEventType {
 enum class ShapeType {
     Circle,
     Box,
+    Polygon,
 };
 
 struct CollisionFilter {
@@ -95,6 +96,15 @@ struct CircleFixtureDefinition {
 
 struct BoxFixtureDefinition {
     Vec2 halfExtents {0.5F, 0.5F};
+    Vec2 localCenter {};
+    float friction {0.5F};
+    float restitution {0.0F};
+    bool sensor {false};
+    CollisionFilter filter {};
+};
+
+struct PolygonFixtureDefinition {
+    std::vector<Vec2> vertices;
     Vec2 localCenter {};
     float friction {0.5F};
     float restitution {0.0F};
@@ -149,6 +159,8 @@ public:
         BodyId body, const CircleFixtureDefinition& definition = {});
     [[nodiscard]] FixtureId createBoxFixture(
         BodyId body, const BoxFixtureDefinition& definition = {});
+    [[nodiscard]] FixtureId createPolygonFixture(
+        BodyId body, const PolygonFixtureDefinition& definition);
     [[nodiscard]] bool destroyFixture(FixtureId id) noexcept;
 
     [[nodiscard]] BodyState* body(BodyId id) noexcept;
@@ -182,6 +194,7 @@ private:
         ShapeType shape {ShapeType::Circle};
         float radius {0.5F};
         Vec2 halfExtents {0.5F, 0.5F};
+        std::vector<Vec2> vertices;
         Vec2 localCenter {};
         float friction {0.5F};
         float restitution {0.0F};

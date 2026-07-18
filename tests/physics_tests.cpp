@@ -200,6 +200,48 @@ void testOrientedBoxContacts() {
     assert(overlapWorld.contactEvents().front().type == ContactEventType::Begin);
 }
 
+void testConvexPolygonContacts() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId triangle = world.createBody({.type = BodyType::Static});
+    static_cast<void>(world.createPolygonFixture(triangle, {
+        .vertices = {{-1.0F, -1.0F}, {1.0F, -1.0F}, {0.0F, 1.0F}},
+    }));
+    const BodyId circle = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {0.0F, 0.85F},
+        .mass = 1.0F,
+    });
+    static_cast<void>(world.createCircleFixture(circle, {.radius = 0.3F}));
+    world.step(1.0F / 120.0F);
+    assert(world.contactEvents().size() == 1U);
+
+    World polygonWorld {{.gravity = {0.0F, 0.0F}}};
+    const BodyId first = polygonWorld.createBody({.type = BodyType::Static});
+    static_cast<void>(polygonWorld.createPolygonFixture(first, {
+        .vertices = {{-1.0F, -0.5F}, {1.0F, -0.5F}, {1.0F, 0.5F}, {-1.0F, 0.5F}},
+    }));
+    const BodyId second = polygonWorld.createBody({
+        .type = BodyType::Dynamic,
+        .position = {0.75F, 0.0F},
+        .mass = 1.0F,
+    });
+    static_cast<void>(polygonWorld.createPolygonFixture(second, {
+        .vertices = {{-0.5F, -0.5F}, {0.5F, -0.5F}, {0.0F, 0.6F}},
+    }));
+    polygonWorld.step(1.0F / 120.0F);
+    assert(polygonWorld.contactEvents().size() == 1U);
+
+    bool rejectedConcavePolygon = false;
+    try {
+        static_cast<void>(polygonWorld.createPolygonFixture(second, {
+            .vertices = {{-1.0F, -1.0F}, {1.0F, -1.0F}, {0.0F, 0.0F}, {1.0F, 1.0F}, {-1.0F, 1.0F}},
+        }));
+    } catch (const std::invalid_argument&) {
+        rejectedConcavePolygon = true;
+    }
+    assert(rejectedConcavePolygon);
+}
+
 void testFilterAndAabbQuery() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId box = world.createBody({
@@ -331,6 +373,7 @@ int main() {
     testBoxContactAndBroadPhaseStats();
     testCircleBoxCollision();
     testOrientedBoxContacts();
+    testConvexPolygonContacts();
     testFilterAndAabbQuery();
     testSweepAndPruneSkipsSparsePairs();
     testCameraRoundTripAndSoftwareRenderer();

@@ -68,6 +68,34 @@ using math::rotate;
            restitution >= 0.0F && restitution <= 1.0F;
 }
 
+[[nodiscard]] float signedArea(const std::vector<Vec2>& vertices) noexcept {
+    float twiceArea = 0.0F;
+    for (std::size_t index = 0; index < vertices.size(); ++index) {
+        twiceArea += math::cross(vertices[index], vertices[(index + 1U) % vertices.size()]);
+    }
+    return twiceArea * 0.5F;
+}
+
+[[nodiscard]] bool isStrictlyConvexCounterClockwise(const std::vector<Vec2>& vertices) noexcept {
+    if (vertices.size() < 3U || vertices.size() > 8U) {
+        return false;
+    }
+    for (const Vec2 vertex : vertices) {
+        if (!isFinite(vertex)) {
+            return false;
+        }
+    }
+    for (std::size_t index = 0; index < vertices.size(); ++index) {
+        const Vec2 firstEdge = vertices[(index + 1U) % vertices.size()] - vertices[index];
+        const Vec2 secondEdge = vertices[(index + 2U) % vertices.size()] -
+            vertices[(index + 1U) % vertices.size()];
+        if (math::cross(firstEdge, secondEdge) <= 1.0e-6F) {
+            return false;
+        }
+    }
+    return signedArea(vertices) > 1.0e-6F;
+}
+
 } // namespace
 
 World::World(WorldSettings settings) : settings_(settings) {
@@ -205,6 +233,48 @@ FixtureId World::createBoxFixture(const BodyId bodyId, const BoxFixtureDefinitio
     }
 
     fixtures_.push_back(FixtureSlot {.value = fixture});
+    return {.index = static_cast<std::uint32_t>(fixtures_.size() - 1U), .generation = 1U};
+}
+
+FixtureId World::createPolygonFixture(
+    const BodyId bodyId, const PolygonFixtureDefinition& definition) {
+    if (bodySlot(bodyId) == nullptr) {
+        return {};
+    }
+    if (!isFinite(definition.localCenter) ||
+        !isValidMaterial(definition.friction, definition.restitution)) {
+        throw std::invalid_argument("PolygonFixtureDefinition contains an invalid value");
+    }
+
+    std::vector<Vec2> vertices = definition.vertices;
+    if (signedArea(vertices) < 0.0F) {
+        std::reverse(vertices.begin(), vertices.end());
+    }
+    if (!isStrictlyConvexCounterClockwise(vertices)) {
+        throw std::invalid_argument(
+            "PolygonFixtureDefinition requires three to eight strictly convex vertices");
+    }
+
+    Fixture fixture {
+        .body = bodyId,
+        .shape = ShapeType::Polygon,
+        .vertices = std::move(vertices),
+        .localCenter = definition.localCenter,
+        .friction = definition.friction,
+        .restitution = definition.restitution,
+        .sensor = definition.sensor,
+        .filter = definition.filter,
+    };
+
+    for (std::uint32_t index = 0; index < fixtures_.size(); ++index) {
+        FixtureSlot& slot = fixtures_[index];
+        if (!slot.value.has_value()) {
+            slot.value = std::move(fixture);
+            return {.index = index, .generation = slot.generation};
+        }
+    }
+
+    fixtures_.push_back(FixtureSlot {.value = std::move(fixture)});
     return {.index = static_cast<std::uint32_t>(fixtures_.size() - 1U), .generation = 1U};
 }
 
@@ -430,81 +500,121 @@ void World::step(const float deltaTime) {
                     contactPoint = firstCenter + normal * (first.radius - penetration * 0.5F);
                     collided = true;
                 }
-            } else if (first.shape == ShapeType::Box && second.shape == ShapeType::Box) {
-                const Vec2 delta = secondCenter - firstCenter;
-                const Vec2 firstXAxis = rotate({1.0F, 0.0F}, firstBody->angle);
-                const Vec2 firstYAxis = rotate({0.0F, 1.0F}, firstBody->angle);
-                const Vec2 secondXAxis = rotate({1.0F, 0.0F}, secondBody->angle);
-                const Vec2 secondYAxis = rotate({0.0F, 1.0F}, secondBody->angle);
-                const std::array axes {firstXAxis, firstYAxis, secondXAxis, secondYAxis};
-                penetration = std::numeric_limits<float>::max();
-                collided = true;
-                for (const Vec2 axis : axes) {
-                    const float firstProjection =
-                        first.halfExtents.x * std::abs(dot(axis, firstXAxis)) +
-                        first.halfExtents.y * std::abs(dot(axis, firstYAxis));
-                    const float secondProjection =
-                        second.halfExtents.x * std::abs(dot(axis, secondXAxis)) +
-                        second.halfExtents.y * std::abs(dot(axis, secondYAxis));
-                    const float overlap = firstProjection + secondProjection - std::abs(dot(delta, axis));
-                    if (overlap <= 0.0F) {
-                        collided = false;
-                        break;
-                    }
-                    if (overlap < penetration) {
-                        penetration = overlap;
-                        normal = dot(delta, axis) >= 0.0F ? axis : -axis;
-                    }
-                }
-                contactPoint = (firstCenter + secondCenter) * 0.5F;
             } else {
-                const bool firstIsCircle = first.shape == ShapeType::Circle;
-                const Fixture& circle = firstIsCircle ? first : second;
-                const Vec2 circleCenter = firstIsCircle ? firstCenter : secondCenter;
-                const Fixture& box = firstIsCircle ? second : first;
-                const Vec2 boxCenter = firstIsCircle ? secondCenter : firstCenter;
-                const float boxAngle = firstIsCircle ? secondBody->angle : firstBody->angle;
-                const Aabb localBounds {
-                    .min = -box.halfExtents,
-                    .max = box.halfExtents,
-                };
-                const Vec2 localCircleCenter = rotate(circleCenter - boxCenter, -boxAngle);
-                const Vec2 closestPoint = math::clamp(localCircleCenter, localBounds);
-                const Vec2 circleToBox = closestPoint - localCircleCenter;
-                const float distanceSquared = lengthSquared(circleToBox);
-
-                if (distanceSquared > 1.0e-12F) {
-                    const float distance = std::sqrt(distanceSquared);
-                    if (distance < circle.radius) {
-                        normal = rotate(circleToBox / distance, boxAngle);
-                        penetration = circle.radius - distance;
-                        contactPoint = boxCenter + rotate(closestPoint, boxAngle);
-                        collided = true;
-                    }
-                } else if (math::contains(localBounds, localCircleCenter)) {
-                    const float left = localCircleCenter.x - localBounds.min.x;
-                    const float right = localBounds.max.x - localCircleCenter.x;
-                    const float bottom = localCircleCenter.y - localBounds.min.y;
-                    const float top = localBounds.max.y - localCircleCenter.y;
-                    const float nearestFace = std::min({left, right, bottom, top});
-                    Vec2 outward {};
-                    if (nearestFace == left) {
-                        outward = {-1.0F, 0.0F};
-                    } else if (nearestFace == right) {
-                        outward = {1.0F, 0.0F};
-                    } else if (nearestFace == bottom) {
-                        outward = {0.0F, -1.0F};
+                const auto worldVertices = [](const Fixture& fixture, const BodyState& bodyState) {
+                    std::vector<Vec2> vertices;
+                    if (fixture.shape == ShapeType::Box) {
+                        vertices = {
+                            {-fixture.halfExtents.x, -fixture.halfExtents.y},
+                            {fixture.halfExtents.x, -fixture.halfExtents.y},
+                            {fixture.halfExtents.x, fixture.halfExtents.y},
+                            {-fixture.halfExtents.x, fixture.halfExtents.y},
+                        };
                     } else {
-                        outward = {0.0F, 1.0F};
+                        vertices = fixture.vertices;
                     }
-                    normal = rotate(-outward, boxAngle);
-                    penetration = circle.radius + nearestFace;
-                    contactPoint = circleCenter + normal * circle.radius;
-                    collided = true;
-                }
+                    for (Vec2& vertex : vertices) {
+                        vertex = bodyState.position + rotate(fixture.localCenter + vertex, bodyState.angle);
+                    }
+                    return vertices;
+                };
+                const auto polygonCenter = [](const std::vector<Vec2>& vertices) {
+                    Vec2 center {};
+                    for (const Vec2 vertex : vertices) {
+                        center += vertex;
+                    }
+                    return center / static_cast<float>(vertices.size());
+                };
+                const auto project = [](const std::vector<Vec2>& vertices, const Vec2 axis,
+                                        float& minimum, float& maximum) {
+                    minimum = maximum = dot(vertices.front(), axis);
+                    for (const Vec2 vertex : vertices) {
+                        const float value = dot(vertex, axis);
+                        minimum = std::min(minimum, value);
+                        maximum = std::max(maximum, value);
+                    }
+                };
+                const bool firstIsCircle = first.shape == ShapeType::Circle;
+                const bool secondIsCircle = second.shape == ShapeType::Circle;
+                const Fixture& polygonFixture = firstIsCircle ? second : first;
+                const BodyState& polygonBody = firstIsCircle ? *secondBody : *firstBody;
+                const std::vector<Vec2> firstPolygon = firstIsCircle ? std::vector<Vec2> {} : worldVertices(first, *firstBody);
+                const std::vector<Vec2> secondPolygon = secondIsCircle ? std::vector<Vec2> {} : worldVertices(second, *secondBody);
 
-                if (collided && !firstIsCircle) {
-                    normal = -normal;
+                if (!firstIsCircle && !secondIsCircle) {
+                    const Vec2 firstPolygonCenter = polygonCenter(firstPolygon);
+                    const Vec2 secondPolygonCenter = polygonCenter(secondPolygon);
+                    penetration = std::numeric_limits<float>::max();
+                    collided = true;
+                    for (const auto* polygon : {&firstPolygon, &secondPolygon}) {
+                        for (std::size_t index = 0; index < polygon->size(); ++index) {
+                            const Vec2 edge = (*polygon)[(index + 1U) % polygon->size()] - (*polygon)[index];
+                            const Vec2 axis = normalized({-edge.y, edge.x});
+                            float firstMinimum = 0.0F;
+                            float firstMaximum = 0.0F;
+                            float secondMinimum = 0.0F;
+                            float secondMaximum = 0.0F;
+                            project(firstPolygon, axis, firstMinimum, firstMaximum);
+                            project(secondPolygon, axis, secondMinimum, secondMaximum);
+                            const float overlap = std::min(firstMaximum, secondMaximum) -
+                                std::max(firstMinimum, secondMinimum);
+                            if (overlap <= 0.0F) {
+                                collided = false;
+                                break;
+                            }
+                            if (overlap < penetration) {
+                                penetration = overlap;
+                                normal = dot(secondPolygonCenter - firstPolygonCenter, axis) >= 0.0F ? axis : -axis;
+                            }
+                        }
+                        if (!collided) {
+                            break;
+                        }
+                    }
+                    contactPoint = (firstPolygonCenter + secondPolygonCenter) * 0.5F;
+                } else {
+                    const Fixture& circle = firstIsCircle ? first : second;
+                    const Vec2 circleCenter = firstIsCircle ? firstCenter : secondCenter;
+                    const std::vector<Vec2> polygon = worldVertices(polygonFixture, polygonBody);
+                    const Vec2 center = polygonCenter(polygon);
+                    penetration = std::numeric_limits<float>::max();
+                    collided = true;
+                    std::vector<Vec2> axes;
+                    axes.reserve(polygon.size() + 1U);
+                    std::size_t closestVertex = 0U;
+                    float closestDistance = lengthSquared(polygon.front() - circleCenter);
+                    for (std::size_t index = 0; index < polygon.size(); ++index) {
+                        const Vec2 edge = polygon[(index + 1U) % polygon.size()] - polygon[index];
+                        axes.push_back(normalized({-edge.y, edge.x}));
+                        const float distance = lengthSquared(polygon[index] - circleCenter);
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestVertex = index;
+                        }
+                    }
+                    if (closestDistance > 1.0e-12F) {
+                        axes.push_back(normalized(polygon[closestVertex] - circleCenter));
+                    }
+                    for (const Vec2 axis : axes) {
+                        float polygonMinimum = 0.0F;
+                        float polygonMaximum = 0.0F;
+                        project(polygon, axis, polygonMinimum, polygonMaximum);
+                        const float circleProjection = dot(circleCenter, axis);
+                        const float overlap = std::min(polygonMaximum, circleProjection + circle.radius) -
+                            std::max(polygonMinimum, circleProjection - circle.radius);
+                        if (overlap <= 0.0F) {
+                            collided = false;
+                            break;
+                        }
+                        if (overlap < penetration) {
+                            penetration = overlap;
+                            normal = dot(center - circleCenter, axis) >= 0.0F ? axis : -axis;
+                        }
+                    }
+                    contactPoint = circleCenter + normal * circle.radius;
+                    if (collided && !firstIsCircle) {
+                        normal = -normal;
+                    }
                 }
             }
 
@@ -760,6 +870,18 @@ Aabb World::fixtureAabb(const Fixture& fixture) const noexcept {
     if (fixture.shape == ShapeType::Circle) {
         const Vec2 extent {fixture.radius, fixture.radius};
         return {.min = center - extent, .max = center + extent};
+    }
+    if (fixture.shape == ShapeType::Polygon) {
+        Vec2 minimum {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+        Vec2 maximum {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()};
+        for (const Vec2 vertex : fixture.vertices) {
+            const Vec2 worldVertex = state->position + rotate(fixture.localCenter + vertex, state->angle);
+            minimum.x = std::min(minimum.x, worldVertex.x);
+            minimum.y = std::min(minimum.y, worldVertex.y);
+            maximum.x = std::max(maximum.x, worldVertex.x);
+            maximum.y = std::max(maximum.y, worldVertex.y);
+        }
+        return {.min = minimum, .max = maximum};
     }
     const Vec2 xAxis = rotate({1.0F, 0.0F}, state->angle);
     const Vec2 yAxis = rotate({0.0F, 1.0F}, state->angle);
