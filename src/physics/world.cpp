@@ -1078,7 +1078,70 @@ void World::step(const float deltaTime) {
                             break;
                         }
                     }
-                    contactPoint = (firstPolygonCenter + secondPolygonCenter) * 0.5F;
+                    const auto containsPoint = [](const std::vector<Vec2>& polygon, const Vec2 point) {
+                        for (std::size_t index = 0; index < polygon.size(); ++index) {
+                            const Vec2 edge = polygon[(index + 1U) % polygon.size()] - polygon[index];
+                            if (math::cross(edge, point - polygon[index]) < -1.0e-5F) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    };
+                    std::vector<Vec2> clippedPoints;
+                    clippedPoints.reserve(firstPolygon.size() + secondPolygon.size() + 8U);
+                    const auto addUnique = [&clippedPoints](const Vec2 point) {
+                        for (const Vec2 existing : clippedPoints) {
+                            if (lengthSquared(existing - point) <= 1.0e-8F) {
+                                return;
+                            }
+                        }
+                        clippedPoints.push_back(point);
+                    };
+                    for (const Vec2 vertex : firstPolygon) {
+                        if (containsPoint(secondPolygon, vertex)) {
+                            addUnique(vertex);
+                        }
+                    }
+                    for (const Vec2 vertex : secondPolygon) {
+                        if (containsPoint(firstPolygon, vertex)) {
+                            addUnique(vertex);
+                        }
+                    }
+                    for (std::size_t edgeIndexA = 0; edgeIndexA < firstPolygon.size(); ++edgeIndexA) {
+                        const Vec2 firstStart = firstPolygon[edgeIndexA];
+                        const Vec2 firstEdge = firstPolygon[(edgeIndexA + 1U) % firstPolygon.size()] - firstStart;
+                        for (std::size_t edgeIndexB = 0; edgeIndexB < secondPolygon.size(); ++edgeIndexB) {
+                            const Vec2 secondStart = secondPolygon[edgeIndexB];
+                            const Vec2 secondEdge = secondPolygon[(edgeIndexB + 1U) % secondPolygon.size()] - secondStart;
+                            const float denominator = math::cross(firstEdge, secondEdge);
+                            if (std::abs(denominator) <= 1.0e-6F) {
+                                continue;
+                            }
+                            const Vec2 offset = secondStart - firstStart;
+                            const float firstFraction = math::cross(offset, secondEdge) / denominator;
+                            const float secondFraction = math::cross(offset, firstEdge) / denominator;
+                            if (firstFraction >= -1.0e-5F && firstFraction <= 1.00001F &&
+                                secondFraction >= -1.0e-5F && secondFraction <= 1.00001F) {
+                                addUnique(firstStart + firstEdge * firstFraction);
+                            }
+                        }
+                    }
+                    if (clippedPoints.empty()) {
+                        contactPoint = (firstPolygonCenter + secondPolygonCenter) * 0.5F;
+                    } else {
+                        const Vec2 tangent {-normal.y, normal.x};
+                        auto firstPoint = clippedPoints.front();
+                        auto lastPoint = clippedPoints.front();
+                        for (const Vec2 point : clippedPoints) {
+                            if (dot(point, tangent) < dot(firstPoint, tangent)) {
+                                firstPoint = point;
+                            }
+                            if (dot(point, tangent) > dot(lastPoint, tangent)) {
+                                lastPoint = point;
+                            }
+                        }
+                        contactPoint = (firstPoint + lastPoint) * 0.5F;
+                    }
                 } else {
                     const Fixture& circle = firstIsCircle ? first : second;
                     const Vec2 circleCenter = firstIsCircle ? firstCenter : secondCenter;

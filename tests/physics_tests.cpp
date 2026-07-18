@@ -470,6 +470,8 @@ void testConvexPolygonContacts() {
     }));
     polygonWorld.step(1.0F / 120.0F);
     assert(polygonWorld.contactEvents().size() == 1U);
+    const ContactEvent& polygonContact = polygonWorld.contactEvents().front();
+    assert(std::abs(render2d::math::length(polygonContact.normal) - 1.0F) < 0.0001F);
 
     bool rejectedConcavePolygon = false;
     try {
