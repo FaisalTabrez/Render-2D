@@ -1,4 +1,5 @@
 #include "render2d/physics/world.hpp"
+#include "render2d/debug/physics_debug_renderer.hpp"
 #include "render2d/render/software_renderer.hpp"
 #include "render2d/render/tile_map.hpp"
 
@@ -188,6 +189,26 @@ void testPrismaticJointLimits() {
     assert(sliderState != nullptr);
     assert(sliderState->position.x <= 1.01F);
     assert(std::abs(sliderState->linearVelocity.x) < 0.0001F);
+}
+
+void testPrismaticJointMotor() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId track = world.createBody({.type = BodyType::Static});
+    const BodyId slider = world.createBody({
+        .type = BodyType::Dynamic,
+        .mass = 1.0F,
+    });
+    static_cast<void>(world.createPrismaticJoint({
+        .bodyA = track,
+        .bodyB = slider,
+        .enableMotor = true,
+        .motorSpeed = 2.0F,
+        .maxMotorForce = 100.0F,
+    }));
+    world.step(1.0F / 60.0F);
+    const BodyState* const sliderState = world.body(slider);
+    assert(sliderState != nullptr);
+    assert(sliderState->linearVelocity.x > 1.5F);
 }
 
 void testBulletContinuousCollisionDetection() {
@@ -500,6 +521,23 @@ void testCameraRoundTripAndSoftwareRenderer() {
     assert(image.pixel(64U - 1U, 32U) == render2d::render::Color::rgb(20, 200, 90));
 }
 
+void testPhysicsDebugVisualSnapshot() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId body = world.createBody({.type = BodyType::Static});
+    static_cast<void>(world.createCircleFixture(body, {.radius = 0.5F}));
+    render2d::render::DrawList drawList;
+    render2d::debug::PhysicsDebugRenderer debugRenderer;
+    debugRenderer.append(world, drawList, {.drawAabbs = false, .drawContacts = false, .drawJoints = false});
+    render2d::render::Camera2D camera {64U, 64U, 32.0F};
+    camera.setClearColor(render2d::render::Color::rgb(1, 2, 3));
+    render2d::render::Image image {64U, 64U};
+    render2d::render::SoftwareRenderer renderer;
+    renderer.render(drawList, camera, image);
+    assert(drawList.commands().size() == 1U);
+    assert(image.pixel(32U, 32U) == render2d::render::Color::rgb(255, 200, 40));
+    assert(image.pixel(0U, 0U) == render2d::render::Color::rgb(1, 2, 3));
+}
+
 void testTexturesSpritesAtlasesAndTileMaps() {
     using namespace render2d::render;
 
@@ -555,6 +593,7 @@ int main() {
     testRevoluteJoint();
     testPrismaticJoint();
     testPrismaticJointLimits();
+    testPrismaticJointMotor();
     testBulletContinuousCollisionDetection();
     testContactImpulseWarmStarting();
     testCircleContactLifecycle();
@@ -567,6 +606,7 @@ int main() {
     testRayCastQuery();
     testSweepAndPruneSkipsSparsePairs();
     testCameraRoundTripAndSoftwareRenderer();
+    testPhysicsDebugVisualSnapshot();
     testTexturesSpritesAtlasesAndTileMaps();
     std::cout << "All physics tests passed.\n";
 }

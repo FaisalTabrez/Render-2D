@@ -10,6 +10,7 @@ option(RENDER2D_BUILD_SDL_SANDBOX "Build the interactive SDL desktop sandbox" OF
 
 add_library(render2d STATIC
     src/physics/world.cpp
+    src/debug/physics_debug_renderer.cpp
     src/render/software_renderer.cpp
 )
 

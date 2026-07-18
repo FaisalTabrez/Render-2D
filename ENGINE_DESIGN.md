@@ -159,13 +159,15 @@ tune them per game without changing solver code.
   anchors while allowing unrestricted relative rotation.
 - **Prismatic joints:** generation-checked sliders preserve a local travel axis
   and reference angle while constraining sideways movement. Optional translation
-  limits bound rail travel; motors are a planned extension.
+  limits bound rail travel and force-limited motors drive axis speed.
 - **Continuous collision detection:** a `bullet` dynamic body uses swept AABB
   broad-phase candidates and a time-of-impact shape cast against static or
   kinematic fixtures. The current implementation supports circular bullet
   fixtures, with exact circle casts and conservative expanded-AABB casts for
-  boxes and polygons. Resolve the earliest impact before discrete contact
-  solving; bounded remaining-step sub-stepping follows in a later iteration.
+  boxes and polygons. It resolves the earliest impact, removes the inward
+  velocity component, then advances the remaining fraction along the impact
+  tangent before discrete contact solving. Bounded multi-impact sub-stepping
+  follows in a later iteration.
 - **Islands:** solve connected awake bodies, contacts, and joints together so
   sleep and constraint propagation are coherent.
 

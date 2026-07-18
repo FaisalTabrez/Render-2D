@@ -10,6 +10,10 @@
 #include <span>
 #include <vector>
 
+namespace render2d::debug {
+class PhysicsDebugRenderer;
+}
+
 namespace render2d::physics {
 
 using math::Vec2;
@@ -152,6 +156,9 @@ struct PrismaticJointDefinition {
     bool enableLimit {false};
     float lowerTranslation {0.0F};
     float upperTranslation {0.0F};
+    bool enableMotor {false};
+    float motorSpeed {0.0F};
+    float maxMotorForce {0.0F};
 };
 
 struct BodyState {
@@ -241,6 +248,8 @@ public:
     [[nodiscard]] const WorldStats& stats() const noexcept;
 
 private:
+    friend class render2d::debug::PhysicsDebugRenderer;
+
     struct BodySlot {
         std::uint32_t generation {1};
         std::optional<BodyState> value;
@@ -285,6 +294,9 @@ private:
         bool enableLimit {false};
         float lowerTranslation {0.0F};
         float upperTranslation {0.0F};
+        bool enableMotor {false};
+        float motorSpeed {0.0F};
+        float maxMotorForce {0.0F};
     };
 
     struct JointSlot {

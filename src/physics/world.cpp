@@ -556,7 +556,9 @@ JointId World::createPrismaticJoint(const PrismaticJointDefinition& definition) 
         !std::isfinite(definition.stiffness) || definition.stiffness <= 0.0F ||
         definition.stiffness > 1.0F || !std::isfinite(definition.lowerTranslation) ||
         !std::isfinite(definition.upperTranslation) ||
-        definition.lowerTranslation > definition.upperTranslation) {
+        definition.lowerTranslation > definition.upperTranslation ||
+        !std::isfinite(definition.motorSpeed) || !std::isfinite(definition.maxMotorForce) ||
+        definition.maxMotorForce < 0.0F) {
         throw std::invalid_argument("PrismaticJointDefinition contains an invalid value");
     }
 
@@ -572,6 +574,9 @@ JointId World::createPrismaticJoint(const PrismaticJointDefinition& definition) 
         .enableLimit = definition.enableLimit,
         .lowerTranslation = definition.lowerTranslation,
         .upperTranslation = definition.upperTranslation,
+        .enableMotor = definition.enableMotor,
+        .motorSpeed = definition.motorSpeed,
+        .maxMotorForce = definition.maxMotorForce,
     };
     for (std::uint32_t index = 0; index < joints_.size(); ++index) {
         JointSlot& slot = joints_[index];
@@ -899,6 +904,8 @@ void World::step(const float deltaTime) {
             if (closingSpeed < 0.0F) {
                 bulletBody.linearVelocity -= impactNormal * closingSpeed;
             }
+            bulletBody.position += bulletBody.linearVelocity *
+                (deltaTime * (1.0F - resolvedFraction));
             ++stats_.continuousCollisionHits;
         }
     }
@@ -1496,6 +1503,33 @@ void World::step(const float deltaTime) {
                             secondBody->angularVelocity += secondInverseInertia *
                                 math::cross(secondArm, impulse);
                         }
+                    }
+                }
+                if (joint.enableMotor && joint.maxMotorForce > 0.0F) {
+                    const float firstAxisArm = math::cross(firstArm, axis);
+                    const float secondAxisArm = math::cross(secondArm, axis);
+                    const float axisMass = firstInverseMass + secondInverseMass +
+                        firstInverseInertia * firstAxisArm * firstAxisArm +
+                        secondInverseInertia * secondAxisArm * secondAxisArm;
+                    if (axisMass > 1.0e-6F) {
+                        const Vec2 firstPointVelocity = firstBody->linearVelocity +
+                            math::cross(firstBody->angularVelocity, firstArm);
+                        const Vec2 secondPointVelocity = secondBody->linearVelocity +
+                            math::cross(secondBody->angularVelocity, secondArm);
+                        const float velocityAlongAxis =
+                            dot(secondPointVelocity - firstPointVelocity, axis);
+                        const float maximumImpulse = joint.maxMotorForce * deltaTime;
+                        const float impulseMagnitude = std::clamp(
+                            (joint.motorSpeed - velocityAlongAxis) / axisMass,
+                            -maximumImpulse,
+                            maximumImpulse);
+                        const Vec2 impulse = axis * impulseMagnitude;
+                        firstBody->linearVelocity -= impulse * firstInverseMass;
+                        secondBody->linearVelocity += impulse * secondInverseMass;
+                        firstBody->angularVelocity -= firstInverseInertia *
+                            math::cross(firstArm, impulse);
+                        secondBody->angularVelocity += secondInverseInertia *
+                            math::cross(secondArm, impulse);
                     }
                 }
                 continue;
