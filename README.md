@@ -1,8 +1,9 @@
 # Render2D
 
-Render2D is a native C++20 2D physics and rendering engine. The current
-foundation is intentionally headless: fixed-step rigid-body simulation with
-circles, contact events, impulse resolution, and no platform dependency.
+Render2D is a native C++20 2D physics and rendering engine. Its core has no
+platform dependency and currently provides fixed-step rigid-body simulation,
+circle/box collisions, contact events, spatial queries, a draw list, camera,
+and a portable software reference renderer.
 
 ## Build
 
@@ -16,8 +17,35 @@ ctest --test-dir build -C Debug --output-on-failure
 The `Debug` configuration is harmless with a single-config generator such as
 NMake and is required by multi-config Visual Studio generators.
 
-The first milestone has no third-party dependencies. SDL 3 and the OpenGL
-renderer are added after the physics core has a stable regression suite.
+The core library and its tests have no third-party dependencies. The optional
+SDL 3 sandbox presents the reference-rendered frame in a native window. A
+direct OpenGL draw-list backend is the next rendering milestone.
+
+## Interactive desktop sandbox
+
+The SDL sandbox opens a native window and displays frames produced by the
+engine's reference renderer. It is an optional target, keeping the library
+headless and testable by default.
+
+```powershell
+cmake -S . -B build-sdl `
+  -DCMAKE_TOOLCHAIN_FILE="C:/Program Files/Microsoft Visual Studio/18/Community/VC/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+  -DRENDER2D_BUILD_SDL_SANDBOX=ON
+cmake --build build-sdl --config Debug --target sdl_sandbox
+```
+
+Use Escape or close the window to exit. The next backend replaces the CPU
+texture upload with direct OpenGL draw-list batching.
+
+## Implemented features
+
+- Fixed-timestep dynamic, kinematic, and static bodies
+- Circle, axis-aligned box, and circle–box contact generation
+- AABB pair pruning, collision layers, AABB queries, friction, restitution,
+  force integration, and contact lifecycle events
+- Stable render layers for circles, rectangles, and lines
+- Camera pan, zoom, and rotation; alpha compositing; portable PPM frame output
+- SDL native-window sandbox with a reproducible vcpkg manifest
 
 ## Current API
 

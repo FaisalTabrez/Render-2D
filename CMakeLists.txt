@@ -6,8 +6,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(RENDER2D_BUILD_SDL_SANDBOX "Build the interactive SDL desktop sandbox" OFF)
+
 add_library(render2d STATIC
     src/physics/world.cpp
+    src/render/software_renderer.cpp
 )
 
 add_library(render2d::render2d ALIAS render2d)
@@ -31,3 +34,10 @@ enable_testing()
 add_executable(render2d_tests tests/physics_tests.cpp)
 target_link_libraries(render2d_tests PRIVATE render2d::render2d)
 add_test(NAME render2d_tests COMMAND render2d_tests)
+
+if(RENDER2D_BUILD_SDL_SANDBOX)
+    find_package(SDL3 CONFIG REQUIRED)
+
+    add_executable(sdl_sandbox examples/sdl_sandbox.cpp)
+    target_link_libraries(sdl_sandbox PRIVATE render2d::render2d SDL3::SDL3)
+endif()

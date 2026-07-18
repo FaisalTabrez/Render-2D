@@ -2,6 +2,7 @@
 /build*/
 /.vs/
 /out/
+/vcpkg_installed/
 
 # Native compiler intermediates
 *.obj

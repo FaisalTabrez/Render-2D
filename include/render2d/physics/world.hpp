@@ -1,8 +1,9 @@
 #pragma once
 
-#include "render2d/math/vec2.hpp"
+#include "render2d/math/aabb.hpp"
 
 #include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <set>
 #include <span>
@@ -11,6 +12,7 @@
 namespace render2d::physics {
 
 using math::Vec2;
+using math::Aabb;
 
 constexpr std::uint32_t invalidIndex = 0xFFFF'FFFFU;
 
@@ -48,6 +50,16 @@ enum class ContactEventType {
     End,
 };
 
+enum class ShapeType {
+    Circle,
+    Box,
+};
+
+struct CollisionFilter {
+    std::uint32_t categoryBits {0x0000'0001U};
+    std::uint32_t maskBits {0xFFFF'FFFFU};
+};
+
 struct WorldSettings {
     Vec2 gravity {0.0F, -9.81F};
     std::uint32_t velocityIterations {8};
@@ -67,8 +79,19 @@ struct BodyDefinition {
 struct CircleFixtureDefinition {
     float radius {0.5F};
     Vec2 localCenter {};
+    float friction {0.5F};
     float restitution {0.0F};
     bool sensor {false};
+    CollisionFilter filter {};
+};
+
+struct BoxFixtureDefinition {
+    Vec2 halfExtents {0.5F, 0.5F};
+    Vec2 localCenter {};
+    float friction {0.5F};
+    float restitution {0.0F};
+    bool sensor {false};
+    CollisionFilter filter {};
 };
 
 struct BodyState {
@@ -90,6 +113,14 @@ struct ContactEvent {
     bool sensor {false};
 };
 
+struct WorldStats {
+    std::size_t activeBodies {0};
+    std::size_t activeFixtures {0};
+    std::size_t broadPhaseCandidatePairs {0};
+    std::size_t narrowPhaseTests {0};
+    std::size_t activeContacts {0};
+};
+
 class World {
 public:
     explicit World(WorldSettings settings = {});
@@ -98,6 +129,8 @@ public:
     [[nodiscard]] bool destroyBody(BodyId id) noexcept;
     [[nodiscard]] FixtureId createCircleFixture(
         BodyId body, const CircleFixtureDefinition& definition = {});
+    [[nodiscard]] FixtureId createBoxFixture(
+        BodyId body, const BoxFixtureDefinition& definition = {});
     [[nodiscard]] bool destroyFixture(FixtureId id) noexcept;
 
     [[nodiscard]] BodyState* body(BodyId id) noexcept;
@@ -105,11 +138,14 @@ public:
     [[nodiscard]] bool setLinearVelocity(BodyId id, Vec2 velocity) noexcept;
     [[nodiscard]] bool applyForce(BodyId id, Vec2 force) noexcept;
 
+    [[nodiscard]] std::vector<FixtureId> queryAabb(const Aabb& bounds) const;
+
     void step(float deltaTime);
 
     [[nodiscard]] std::span<const ContactEvent> contactEvents() const noexcept;
     void clearContactEvents() noexcept;
     [[nodiscard]] const WorldSettings& settings() const noexcept;
+    [[nodiscard]] const WorldStats& stats() const noexcept;
 
 private:
     struct BodySlot {
@@ -118,17 +154,21 @@ private:
         Vec2 force {};
     };
 
-    struct CircleFixture {
+    struct Fixture {
         BodyId body {};
+        ShapeType shape {ShapeType::Circle};
         float radius {0.5F};
+        Vec2 halfExtents {0.5F, 0.5F};
         Vec2 localCenter {};
+        float friction {0.5F};
         float restitution {0.0F};
         bool sensor {false};
+        CollisionFilter filter {};
     };
 
     struct FixtureSlot {
         std::uint32_t generation {1};
-        std::optional<CircleFixture> value;
+        std::optional<Fixture> value;
     };
 
     struct ContactConstraint {
@@ -137,12 +177,15 @@ private:
         Vec2 normal {};
         float penetration {0.0F};
         bool sensor {false};
+        float accumulatedNormalImpulse {0.0F};
+        float accumulatedTangentImpulse {0.0F};
     };
 
     [[nodiscard]] BodySlot* bodySlot(BodyId id) noexcept;
     [[nodiscard]] const BodySlot* bodySlot(BodyId id) const noexcept;
     [[nodiscard]] FixtureSlot* fixtureSlot(FixtureId id) noexcept;
     [[nodiscard]] const FixtureSlot* fixtureSlot(FixtureId id) const noexcept;
+    [[nodiscard]] Aabb fixtureAabb(const Fixture& fixture) const noexcept;
 
     WorldSettings settings_;
     std::vector<BodySlot> bodies_;
@@ -150,6 +193,7 @@ private:
     std::vector<ContactConstraint> contacts_;
     std::vector<ContactEvent> events_;
     std::set<std::pair<std::uint64_t, std::uint64_t>> activeContacts_;
+    WorldStats stats_;
 };
 
 } // namespace render2d::physics

@@ -28,7 +28,8 @@ engine or a soft-body/fluids simulator.
 | Physics data | Numeric component stores / handles | Avoids allocating object graphs inside hot loops. |
 | Broad phase | Dynamic AABB tree | Efficient for many moving and static colliders. |
 | Contacts | Sequential-impulse solver with warm starting | Mature, game-ready rigid-body approach. |
-| First renderer | OpenGL 3.3 Core | Small, portable desktop GPU target with sprite batching. |
+| Reference renderer | Portable software rasterizer | Dependency-free correctness baseline and image-test target. |
+| First GPU renderer | OpenGL 3.3 Core | Small, portable desktop GPU target with sprite batching. |
 | Future renderer | Vulkan/Metal/Direct3D backend | Preserves the API while expanding platform reach. |
 
 ## 3. Architecture
@@ -47,6 +48,7 @@ flowchart TB
   Snapshot --> Sync["Transform synchronizer"]
   Sync --> Scene
   Scene --> Renderer["Renderer interface"]
+  Renderer --> Software["Software reference backend"]
   Renderer --> OpenGL["OpenGL 3.3 backend"]
   Renderer --> Vulkan["Optional Vulkan backend"]
   Renderer --> Debug["Debug-draw backend"]
@@ -218,14 +220,16 @@ and circles are expressed in world metres and scaled by camera zoom.
 
 | Backend | Role | Notes |
 | --- | --- | --- |
-| `OpenGLRenderer` | Default desktop backend | OpenGL 3.3 Core, dynamic buffers, texture atlas, and sprite batching. |
+| `SoftwareRenderer` | Reference and testing backend | Rasterizes primitives to an in-memory image with no platform dependency. |
+| `OpenGLRenderer` | Production desktop backend | OpenGL 3.3 Core, dynamic buffers, texture atlas, and sprite batching. |
 | `NullRenderer` | Headless tests and servers | Accepts draw lists without creating a GPU context. |
 | `VulkanRenderer` | Optional high-scale backend | Uses the same draw-list contract when a lower-level GPU backend is needed. |
 | `DebugRenderer` | Physics diagnostics | Draws AABBs, contacts, normals, joints, and sleeping bodies. |
 
-All backends implement the same renderer contract. `OpenGLRenderer` is the
-reference implementation; lower-level backends are introduced only after
-draw-list semantics and screenshot tests are stable.
+All backends implement the same renderer contract. `SoftwareRenderer` is the
+reference implementation; GPU backends are introduced only after draw-list
+semantics and image tests are stable. The SDL sandbox is a presentation adapter
+that uploads reference frames to a native window; it is not a core dependency.
 
 ## 7. Public API sketch
 
@@ -303,8 +307,8 @@ wired together.
 
 ## 10. Delivery sequence
 
-1. **Foundation:** CMake project, math, IDs, fixed-step runner, SDL platform
-   adapter, OpenGL primitive renderer, and debug draw.
+1. **Foundation:** CMake project, math, IDs, fixed-step runner, software
+   primitive renderer, SDL presentation sandbox, and debug draw.
 2. **Minimum physics:** circles/boxes, static/dynamic bodies, brute-force
    broad phase, SAT manifolds, impulses, friction, and contact events.
 3. **Scale and quality:** dynamic AABB tree, contact cache, sleeping, queries,
