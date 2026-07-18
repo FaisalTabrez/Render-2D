@@ -485,12 +485,47 @@ JointId World::createDistanceJoint(const DistanceJointDefinition& definition) {
         throw std::invalid_argument("DistanceJointDefinition contains an invalid value");
     }
 
-    DistanceJoint joint {
+    Joint joint {
+        .type = JointType::Distance,
         .bodyA = definition.bodyA,
         .bodyB = definition.bodyB,
         .localAnchorA = definition.localAnchorA,
         .localAnchorB = definition.localAnchorB,
         .length = definition.length,
+        .stiffness = definition.stiffness,
+    };
+    for (std::uint32_t index = 0; index < joints_.size(); ++index) {
+        JointSlot& slot = joints_[index];
+        if (!slot.value.has_value()) {
+            slot.value = joint;
+            static_cast<void>(wake(definition.bodyA));
+            static_cast<void>(wake(definition.bodyB));
+            return {.index = index, .generation = slot.generation};
+        }
+    }
+
+    joints_.push_back(JointSlot {.value = joint});
+    static_cast<void>(wake(definition.bodyA));
+    static_cast<void>(wake(definition.bodyB));
+    return {.index = static_cast<std::uint32_t>(joints_.size() - 1U), .generation = 1U};
+}
+
+JointId World::createRevoluteJoint(const RevoluteJointDefinition& definition) {
+    if (bodySlot(definition.bodyA) == nullptr || bodySlot(definition.bodyB) == nullptr) {
+        return {};
+    }
+    if (definition.bodyA == definition.bodyB || !isFinite(definition.localAnchorA) ||
+        !isFinite(definition.localAnchorB) || !std::isfinite(definition.stiffness) ||
+        definition.stiffness <= 0.0F || definition.stiffness > 1.0F) {
+        throw std::invalid_argument("RevoluteJointDefinition contains an invalid value");
+    }
+
+    Joint joint {
+        .type = JointType::Revolute,
+        .bodyA = definition.bodyA,
+        .bodyB = definition.bodyB,
+        .localAnchorA = definition.localAnchorA,
+        .localAnchorB = definition.localAnchorB,
         .stiffness = definition.stiffness,
     };
     for (std::uint32_t index = 0; index < joints_.size(); ++index) {
@@ -1125,7 +1160,7 @@ void World::step(const float deltaTime) {
         if (!slot.value.has_value()) {
             continue;
         }
-        const DistanceJoint& joint = *slot.value;
+        const Joint& joint = *slot.value;
         BodyState* const firstBody = body(joint.bodyA);
         BodyState* const secondBody = body(joint.bodyB);
         if (firstBody == nullptr || secondBody == nullptr) {
@@ -1136,6 +1171,33 @@ void World::step(const float deltaTime) {
         const Vec2 secondArm = rotate(joint.localAnchorB, secondBody->angle);
         const Vec2 delta = (secondBody->position + secondArm) -
             (firstBody->position + firstArm);
+        if (joint.type == JointType::Revolute) {
+            const float firstInverseMass = inverseMass(*firstBody);
+            const float secondInverseMass = inverseMass(*secondBody);
+            const float firstInverseInertia = inverseInertia(*firstBody);
+            const float secondInverseInertia = inverseInertia(*secondBody);
+            const float k00 = firstInverseMass + secondInverseMass +
+                firstInverseInertia * firstArm.y * firstArm.y +
+                secondInverseInertia * secondArm.y * secondArm.y;
+            const float k01 = -firstInverseInertia * firstArm.x * firstArm.y -
+                secondInverseInertia * secondArm.x * secondArm.y;
+            const float k11 = firstInverseMass + secondInverseMass +
+                firstInverseInertia * firstArm.x * firstArm.x +
+                secondInverseInertia * secondArm.x * secondArm.x;
+            const float determinant = k00 * k11 - k01 * k01;
+            if (determinant <= 1.0e-8F) {
+                continue;
+            }
+            const Vec2 positionLambda {
+                .x = (k11 * delta.x - k01 * delta.y) * joint.stiffness / determinant,
+                .y = (k00 * delta.y - k01 * delta.x) * joint.stiffness / determinant,
+            };
+            firstBody->position += positionLambda * firstInverseMass;
+            secondBody->position -= positionLambda * secondInverseMass;
+            firstBody->angle += firstInverseInertia * math::cross(firstArm, positionLambda);
+            secondBody->angle -= secondInverseInertia * math::cross(secondArm, positionLambda);
+            continue;
+        }
         const float distance = length(delta);
         const Vec2 normal = distance > 1.0e-6F ? delta / distance : Vec2 {1.0F, 0.0F};
         const float firstNormalArm = math::cross(firstArm, normal);
@@ -1241,7 +1303,7 @@ void World::step(const float deltaTime) {
             if (!slot.value.has_value()) {
                 continue;
             }
-            const DistanceJoint& joint = *slot.value;
+            const Joint& joint = *slot.value;
             BodyState* const firstBody = body(joint.bodyA);
             BodyState* const secondBody = body(joint.bodyB);
             if (firstBody == nullptr || secondBody == nullptr) {
@@ -1252,14 +1314,42 @@ void World::step(const float deltaTime) {
             const Vec2 secondArm = rotate(joint.localAnchorB, secondBody->angle);
             const Vec2 delta = (secondBody->position + secondArm) -
                 (firstBody->position + firstArm);
-            const float distance = length(delta);
-            const Vec2 normal = distance > 1.0e-6F ? delta / distance : Vec2 {1.0F, 0.0F};
-            const float firstNormalArm = math::cross(firstArm, normal);
-            const float secondNormalArm = math::cross(secondArm, normal);
             const float firstInverseMass = inverseMass(*firstBody);
             const float secondInverseMass = inverseMass(*secondBody);
             const float firstInverseInertia = inverseInertia(*firstBody);
             const float secondInverseInertia = inverseInertia(*secondBody);
+            if (joint.type == JointType::Revolute) {
+                const float k00 = firstInverseMass + secondInverseMass +
+                    firstInverseInertia * firstArm.y * firstArm.y +
+                    secondInverseInertia * secondArm.y * secondArm.y;
+                const float k01 = -firstInverseInertia * firstArm.x * firstArm.y -
+                    secondInverseInertia * secondArm.x * secondArm.y;
+                const float k11 = firstInverseMass + secondInverseMass +
+                    firstInverseInertia * firstArm.x * firstArm.x +
+                    secondInverseInertia * secondArm.x * secondArm.x;
+                const float determinant = k00 * k11 - k01 * k01;
+                if (determinant <= 1.0e-8F) {
+                    continue;
+                }
+                const Vec2 firstPointVelocity = firstBody->linearVelocity +
+                    math::cross(firstBody->angularVelocity, firstArm);
+                const Vec2 secondPointVelocity = secondBody->linearVelocity +
+                    math::cross(secondBody->angularVelocity, secondArm);
+                const Vec2 relativeVelocity = secondPointVelocity - firstPointVelocity;
+                const Vec2 impulse {
+                    .x = (-k11 * relativeVelocity.x + k01 * relativeVelocity.y) / determinant,
+                    .y = (k01 * relativeVelocity.x - k00 * relativeVelocity.y) / determinant,
+                };
+                firstBody->linearVelocity -= impulse * firstInverseMass;
+                secondBody->linearVelocity += impulse * secondInverseMass;
+                firstBody->angularVelocity -= firstInverseInertia * math::cross(firstArm, impulse);
+                secondBody->angularVelocity += secondInverseInertia * math::cross(secondArm, impulse);
+                continue;
+            }
+            const float distance = length(delta);
+            const Vec2 normal = distance > 1.0e-6F ? delta / distance : Vec2 {1.0F, 0.0F};
+            const float firstNormalArm = math::cross(firstArm, normal);
+            const float secondNormalArm = math::cross(secondArm, normal);
             const float effectiveMass = firstInverseMass + secondInverseMass +
                 firstInverseInertia * firstNormalArm * firstNormalArm +
                 secondInverseInertia * secondNormalArm * secondNormalArm;

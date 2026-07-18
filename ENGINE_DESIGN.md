@@ -155,6 +155,8 @@ tune them per game without changing solver code.
 - **Distance joints:** generation-checked handles link two local anchors at a
   fixed rest length. They use the same deterministic iterative solve order as
   contacts and are destroyed automatically with either attached body.
+- **Revolute joints:** generation-checked hinges maintain coincident local
+  anchors while allowing unrestricted relative rotation.
 - **Continuous collision detection:** a `bullet` dynamic body uses swept AABB
   broad-phase candidates and a time-of-impact shape cast against static or
   kinematic fixtures. The current implementation supports circular bullet

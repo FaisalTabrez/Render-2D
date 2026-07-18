@@ -108,6 +108,34 @@ void testDistanceJoint() {
     assert(!world.destroyJoint(bodyOwnedJoint));
 }
 
+void testRevoluteJoint() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId anchor = world.createBody({.type = BodyType::Static});
+    const BodyId arm = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {2.0F, 0.0F},
+        .angularVelocity = 2.0F,
+        .mass = 1.0F,
+        .momentOfInertia = 1.0F,
+    });
+    const JointId joint = world.createRevoluteJoint({
+        .bodyA = anchor,
+        .bodyB = arm,
+        .localAnchorB = {-2.0F, 0.0F},
+    });
+    assert(joint);
+
+    for (int index = 0; index < 120; ++index) {
+        world.step(1.0F / 120.0F);
+    }
+    const BodyState* const armState = world.body(arm);
+    assert(armState != nullptr);
+    const render2d::math::Vec2 anchorPoint = armState->position +
+        render2d::math::rotate({-2.0F, 0.0F}, armState->angle);
+    assert(render2d::math::length(anchorPoint) < 0.02F);
+    assert(std::abs(armState->angle) > 0.1F);
+}
+
 void testBulletContinuousCollisionDetection() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId wall = world.createBody({
@@ -470,6 +498,7 @@ int main() {
     testAngularMotion();
     testSleepAndWake();
     testDistanceJoint();
+    testRevoluteJoint();
     testBulletContinuousCollisionDetection();
     testContactImpulseWarmStarting();
     testCircleContactLifecycle();

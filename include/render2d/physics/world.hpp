@@ -134,6 +134,14 @@ struct DistanceJointDefinition {
     float stiffness {0.5F};
 };
 
+struct RevoluteJointDefinition {
+    BodyId bodyA {};
+    BodyId bodyB {};
+    Vec2 localAnchorA {};
+    Vec2 localAnchorB {};
+    float stiffness {0.5F};
+};
+
 struct BodyState {
     BodyType type {BodyType::Static};
     Vec2 position {};
@@ -197,6 +205,7 @@ public:
         BodyId body, const PolygonFixtureDefinition& definition);
     [[nodiscard]] bool destroyFixture(FixtureId id) noexcept;
     [[nodiscard]] JointId createDistanceJoint(const DistanceJointDefinition& definition);
+    [[nodiscard]] JointId createRevoluteJoint(const RevoluteJointDefinition& definition);
     [[nodiscard]] bool destroyJoint(JointId id) noexcept;
 
     [[nodiscard]] BodyState* body(BodyId id) noexcept;
@@ -244,7 +253,13 @@ private:
         std::optional<Fixture> value;
     };
 
-    struct DistanceJoint {
+    enum class JointType {
+        Distance,
+        Revolute,
+    };
+
+    struct Joint {
+        JointType type {JointType::Distance};
         BodyId bodyA {};
         BodyId bodyB {};
         Vec2 localAnchorA {};
@@ -255,7 +270,7 @@ private:
 
     struct JointSlot {
         std::uint32_t generation {1};
-        std::optional<DistanceJoint> value;
+        std::optional<Joint> value;
     };
 
     struct ContactConstraint {
