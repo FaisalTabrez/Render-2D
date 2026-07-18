@@ -236,6 +236,28 @@ void testBulletContinuousCollisionDetection() {
     assert(world.stats().continuousCollisionHits == 1U);
 }
 
+void testBulletCcdContinuesAlongTangent() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId wall = world.createBody({.type = BodyType::Static});
+    static_cast<void>(world.createBoxFixture(wall, {.halfExtents = {0.1F, 5.0F}}));
+    const BodyId bullet = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {-5.0F, -1.0F},
+        .linearVelocity = {100.0F, 20.0F},
+        .mass = 1.0F,
+        .bullet = true,
+    });
+    static_cast<void>(world.createCircleFixture(bullet, {.radius = 0.25F}));
+
+    world.step(0.1F);
+    const BodyState* const bulletState = world.body(bullet);
+    assert(bulletState != nullptr);
+    assert(bulletState->position.x < -0.2F);
+    assert(bulletState->position.y > 0.5F);
+    assert(std::abs(bulletState->linearVelocity.x) < 0.0001F);
+    assert(bulletState->linearVelocity.y > 19.0F);
+}
+
 void testContactImpulseWarmStarting() {
     World world {{.gravity = {0.0F, -10.0F}}};
     const BodyId floor = world.createBody({.type = BodyType::Static});
@@ -595,6 +617,7 @@ int main() {
     testPrismaticJointLimits();
     testPrismaticJointMotor();
     testBulletContinuousCollisionDetection();
+    testBulletCcdContinuesAlongTangent();
     testContactImpulseWarmStarting();
     testCircleContactLifecycle();
     testSensorDoesNotCorrectPosition();
