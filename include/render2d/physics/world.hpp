@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <set>
 #include <span>
@@ -169,6 +170,7 @@ struct WorldStats {
     std::size_t narrowPhaseTests {0};
     std::size_t continuousCollisionTests {0};
     std::size_t continuousCollisionHits {0};
+    std::size_t warmStartedContacts {0};
     std::size_t activeContacts {0};
     std::size_t activeJoints {0};
     std::size_t sleepingBodies {0};
@@ -257,6 +259,12 @@ private:
         bool sensor {false};
         float accumulatedNormalImpulse {0.0F};
         float accumulatedTangentImpulse {0.0F};
+        Vec2 warmStartImpulse {};
+    };
+
+    struct CachedContact {
+        Vec2 normal {};
+        Vec2 impulse {};
     };
 
     [[nodiscard]] BodySlot* bodySlot(BodyId id) noexcept;
@@ -274,6 +282,7 @@ private:
     std::vector<ContactConstraint> contacts_;
     std::vector<ContactEvent> events_;
     std::set<std::pair<std::uint64_t, std::uint64_t>> activeContacts_;
+    std::map<std::pair<std::uint64_t, std::uint64_t>, CachedContact> contactCache_;
     WorldStats stats_;
 };
 

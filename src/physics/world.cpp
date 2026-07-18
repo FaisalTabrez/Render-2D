@@ -868,6 +868,15 @@ void World::step(const float deltaTime) {
             const std::uint64_t firstKey = fixtureKey(firstEntry.id);
             const std::uint64_t secondKey = fixtureKey(secondEntry.id);
             const auto pair = std::pair {std::min(firstKey, secondKey), std::max(firstKey, secondKey)};
+            Vec2 warmStartImpulse {};
+            const auto cachedContact = contactCache_.find(pair);
+            if (cachedContact != contactCache_.end() &&
+                dot(cachedContact->second.normal, normal) >= 0.5F) {
+                warmStartImpulse = cachedContact->second.impulse;
+                if (lengthSquared(warmStartImpulse) > 1.0e-12F) {
+                    ++stats_.warmStartedContacts;
+                }
+            }
             currentContacts.insert(pair);
             const ContactEventType eventType = activeContacts_.contains(pair)
                 ? ContactEventType::Stay
@@ -880,6 +889,7 @@ void World::step(const float deltaTime) {
                 .point = contactPoint,
                 .penetration = penetration,
                 .sensor = sensor,
+                .warmStartImpulse = warmStartImpulse,
             });
             events_.push_back({
                 .type = eventType,
@@ -890,6 +900,39 @@ void World::step(const float deltaTime) {
                 .sensor = sensor,
             });
         }
+    }
+
+    for (ContactConstraint& contact : contacts_) {
+        if (contact.sensor || lengthSquared(contact.warmStartImpulse) <= 1.0e-12F) {
+            continue;
+        }
+        const FixtureSlot* const firstFixtureSlot = fixtureSlot(contact.fixtureA);
+        const FixtureSlot* const secondFixtureSlot = fixtureSlot(contact.fixtureB);
+        if (firstFixtureSlot == nullptr || secondFixtureSlot == nullptr) {
+            continue;
+        }
+        BodyState* const firstBody = body(firstFixtureSlot->value->body);
+        BodyState* const secondBody = body(secondFixtureSlot->value->body);
+        if (firstBody == nullptr || secondBody == nullptr) {
+            continue;
+        }
+
+        const Vec2 firstArm = contact.point - firstBody->position;
+        const Vec2 secondArm = contact.point - secondBody->position;
+        const float firstInverseMass = inverseMass(*firstBody);
+        const float secondInverseMass = inverseMass(*secondBody);
+        const float firstInverseInertia = inverseInertia(*firstBody);
+        const float secondInverseInertia = inverseInertia(*secondBody);
+        firstBody->linearVelocity -= contact.warmStartImpulse * firstInverseMass;
+        secondBody->linearVelocity += contact.warmStartImpulse * secondInverseMass;
+        firstBody->angularVelocity -= firstInverseInertia *
+            math::cross(firstArm, contact.warmStartImpulse);
+        secondBody->angularVelocity += secondInverseInertia *
+            math::cross(secondArm, contact.warmStartImpulse);
+        contact.accumulatedNormalImpulse =
+            std::max(dot(contact.warmStartImpulse, contact.normal), 0.0F);
+        const Vec2 tangent {-contact.normal.y, contact.normal.x};
+        contact.accumulatedTangentImpulse = dot(contact.warmStartImpulse, tangent);
     }
 
     for (ContactConstraint& contact : contacts_) {
@@ -1012,13 +1055,7 @@ void World::step(const float deltaTime) {
             const Vec2 postNormalRelativeVelocity =
                 (secondBody->linearVelocity + math::cross(secondBody->angularVelocity, secondArm)) -
                 (firstBody->linearVelocity + math::cross(firstBody->angularVelocity, firstArm));
-            const Vec2 tangentVector = postNormalRelativeVelocity -
-                contact.normal * dot(postNormalRelativeVelocity, contact.normal);
-            if (lengthSquared(tangentVector) <= 1.0e-12F) {
-                continue;
-            }
-
-            const Vec2 tangent = normalized(tangentVector);
+            const Vec2 tangent {-contact.normal.y, contact.normal.x};
             const float firstTangentArm = math::cross(firstArm, tangent);
             const float secondTangentArm = math::cross(secondArm, tangent);
             const float tangentMass = firstInverseMass + secondInverseMass +
@@ -1088,6 +1125,24 @@ void World::step(const float deltaTime) {
             secondBody->angularVelocity += secondInverseInertia * math::cross(secondArm, impulse);
         }
     }
+
+    std::map<std::pair<std::uint64_t, std::uint64_t>, CachedContact> nextContactCache;
+    for (const ContactConstraint& contact : contacts_) {
+        if (contact.sensor) {
+            continue;
+        }
+        const Vec2 tangent {-contact.normal.y, contact.normal.x};
+        const std::uint64_t firstKey = fixtureKey(contact.fixtureA);
+        const std::uint64_t secondKey = fixtureKey(contact.fixtureB);
+        nextContactCache.emplace(
+            std::pair {std::min(firstKey, secondKey), std::max(firstKey, secondKey)},
+            CachedContact {
+                .normal = contact.normal,
+                .impulse = contact.normal * contact.accumulatedNormalImpulse +
+                    tangent * contact.accumulatedTangentImpulse,
+            });
+    }
+    contactCache_ = std::move(nextContactCache);
 
     for (const auto& pair : activeContacts_) {
         if (!currentContacts.contains(pair)) {

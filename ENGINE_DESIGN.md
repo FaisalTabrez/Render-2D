@@ -146,7 +146,8 @@ tune them per game without changing solver code.
 
 ### 5.4 Stability features
 
-- **Warm starting:** carry matching contact impulses between steps.
+- **Warm starting:** carry matching fixture-pair impulses between steps after
+  checking that the contact normal remains compatible.
 - **Sleeping:** sleep stable dynamic bodies after a configurable time; wake on
   force, torque, or an explicit velocity change. Island-wide wake propagation
   is supported for the current distance joints; contact-cache propagation

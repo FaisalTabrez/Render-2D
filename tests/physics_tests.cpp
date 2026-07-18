@@ -133,6 +133,23 @@ void testBulletContinuousCollisionDetection() {
     assert(world.stats().continuousCollisionHits == 1U);
 }
 
+void testContactImpulseWarmStarting() {
+    World world {{.gravity = {0.0F, -10.0F}}};
+    const BodyId floor = world.createBody({.type = BodyType::Static});
+    static_cast<void>(world.createBoxFixture(floor, {.halfExtents = {2.0F, 1.0F}}));
+    const BodyId ball = world.createBody({
+        .type = BodyType::Dynamic,
+        .position = {0.0F, 1.8F},
+        .mass = 1.0F,
+    });
+    static_cast<void>(world.createCircleFixture(ball, {.radius = 1.0F}));
+
+    world.step(1.0F / 120.0F);
+    assert(world.stats().warmStartedContacts == 0U);
+    world.step(1.0F / 120.0F);
+    assert(world.stats().warmStartedContacts == 1U);
+}
+
 void testCircleContactLifecycle() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId anchor = world.createBody({
@@ -437,6 +454,7 @@ int main() {
     testSleepAndWake();
     testDistanceJoint();
     testBulletContinuousCollisionDetection();
+    testContactImpulseWarmStarting();
     testCircleContactLifecycle();
     testSensorDoesNotCorrectPosition();
     testBoxContactAndBroadPhaseStats();
