@@ -149,6 +149,9 @@ struct PrismaticJointDefinition {
     Vec2 localAnchorB {};
     Vec2 localAxisA {1.0F, 0.0F};
     float stiffness {0.5F};
+    bool enableLimit {false};
+    float lowerTranslation {0.0F};
+    float upperTranslation {0.0F};
 };
 
 struct BodyState {
@@ -279,6 +282,9 @@ private:
         float length {1.0F};
         float stiffness {0.5F};
         float referenceAngle {0.0F};
+        bool enableLimit {false};
+        float lowerTranslation {0.0F};
+        float upperTranslation {0.0F};
     };
 
     struct JointSlot {

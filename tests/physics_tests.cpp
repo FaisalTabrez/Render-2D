@@ -164,6 +164,32 @@ void testPrismaticJoint() {
     assert(std::abs(sliderState->angle) < 0.01F);
 }
 
+void testPrismaticJointLimits() {
+    World world {{.gravity = {0.0F, 0.0F}}};
+    const BodyId track = world.createBody({.type = BodyType::Static});
+    const BodyId slider = world.createBody({
+        .type = BodyType::Dynamic,
+        .linearVelocity = {10.0F, 0.0F},
+        .mass = 1.0F,
+    });
+    const JointId joint = world.createPrismaticJoint({
+        .bodyA = track,
+        .bodyB = slider,
+        .enableLimit = true,
+        .lowerTranslation = -1.0F,
+        .upperTranslation = 1.0F,
+    });
+    assert(joint);
+
+    for (int index = 0; index < 30; ++index) {
+        world.step(1.0F / 120.0F);
+    }
+    const BodyState* const sliderState = world.body(slider);
+    assert(sliderState != nullptr);
+    assert(sliderState->position.x <= 1.01F);
+    assert(std::abs(sliderState->linearVelocity.x) < 0.0001F);
+}
+
 void testBulletContinuousCollisionDetection() {
     World world {{.gravity = {0.0F, 0.0F}}};
     const BodyId wall = world.createBody({
@@ -528,6 +554,7 @@ int main() {
     testDistanceJoint();
     testRevoluteJoint();
     testPrismaticJoint();
+    testPrismaticJointLimits();
     testBulletContinuousCollisionDetection();
     testContactImpulseWarmStarting();
     testCircleContactLifecycle();

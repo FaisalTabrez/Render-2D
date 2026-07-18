@@ -554,7 +554,9 @@ JointId World::createPrismaticJoint(const PrismaticJointDefinition& definition) 
         !isFinite(definition.localAnchorB) || !isFinite(definition.localAxisA) ||
         lengthSquared(definition.localAxisA) <= 1.0e-12F ||
         !std::isfinite(definition.stiffness) || definition.stiffness <= 0.0F ||
-        definition.stiffness > 1.0F) {
+        definition.stiffness > 1.0F || !std::isfinite(definition.lowerTranslation) ||
+        !std::isfinite(definition.upperTranslation) ||
+        definition.lowerTranslation > definition.upperTranslation) {
         throw std::invalid_argument("PrismaticJointDefinition contains an invalid value");
     }
 
@@ -567,6 +569,9 @@ JointId World::createPrismaticJoint(const PrismaticJointDefinition& definition) 
         .localAxisA = normalized(definition.localAxisA),
         .stiffness = definition.stiffness,
         .referenceAngle = secondBody->angle - firstBody->angle,
+        .enableLimit = definition.enableLimit,
+        .lowerTranslation = definition.lowerTranslation,
+        .upperTranslation = definition.upperTranslation,
     };
     for (std::uint32_t index = 0; index < joints_.size(); ++index) {
         JointSlot& slot = joints_[index];
@@ -1264,6 +1269,26 @@ void World::step(const float deltaTime) {
                 firstBody->angle += angularLambda * firstInverseInertia;
                 secondBody->angle -= angularLambda * secondInverseInertia;
             }
+            if (joint.enableLimit) {
+                const float translation = dot(delta, axis);
+                const float limitError = translation < joint.lowerTranslation
+                    ? translation - joint.lowerTranslation
+                    : translation > joint.upperTranslation
+                    ? translation - joint.upperTranslation
+                    : 0.0F;
+                const float firstAxisArm = math::cross(firstArm, axis);
+                const float secondAxisArm = math::cross(secondArm, axis);
+                const float axisMass = firstInverseMass + secondInverseMass +
+                    firstInverseInertia * firstAxisArm * firstAxisArm +
+                    secondInverseInertia * secondAxisArm * secondAxisArm;
+                if (axisMass > 1.0e-6F && limitError != 0.0F) {
+                    const float lambda = limitError * joint.stiffness / axisMass;
+                    firstBody->position += axis * (lambda * firstInverseMass);
+                    secondBody->position -= axis * (lambda * secondInverseMass);
+                    firstBody->angle += lambda * firstInverseInertia * firstAxisArm;
+                    secondBody->angle -= lambda * secondInverseInertia * secondAxisArm;
+                }
+            }
             continue;
         }
         const float distance = length(delta);
@@ -1443,6 +1468,35 @@ void World::step(const float deltaTime) {
                         firstBody->angularVelocity) / angularMass;
                     firstBody->angularVelocity -= impulse * firstInverseInertia;
                     secondBody->angularVelocity += impulse * secondInverseInertia;
+                }
+                if (joint.enableLimit) {
+                    const float translation = dot(delta, axis);
+                    const Vec2 firstPointVelocity = firstBody->linearVelocity +
+                        math::cross(firstBody->angularVelocity, firstArm);
+                    const Vec2 secondPointVelocity = secondBody->linearVelocity +
+                        math::cross(secondBody->angularVelocity, secondArm);
+                    const float velocityAlongAxis =
+                        dot(secondPointVelocity - firstPointVelocity, axis);
+                    const bool atLowerLimit = translation <= joint.lowerTranslation &&
+                        velocityAlongAxis < 0.0F;
+                    const bool atUpperLimit = translation >= joint.upperTranslation &&
+                        velocityAlongAxis > 0.0F;
+                    if (atLowerLimit || atUpperLimit) {
+                        const float firstAxisArm = math::cross(firstArm, axis);
+                        const float secondAxisArm = math::cross(secondArm, axis);
+                        const float axisMass = firstInverseMass + secondInverseMass +
+                            firstInverseInertia * firstAxisArm * firstAxisArm +
+                            secondInverseInertia * secondAxisArm * secondAxisArm;
+                        if (axisMass > 1.0e-6F) {
+                            const Vec2 impulse = axis * (-velocityAlongAxis / axisMass);
+                            firstBody->linearVelocity -= impulse * firstInverseMass;
+                            secondBody->linearVelocity += impulse * secondInverseMass;
+                            firstBody->angularVelocity -= firstInverseInertia *
+                                math::cross(firstArm, impulse);
+                            secondBody->angularVelocity += secondInverseInertia *
+                                math::cross(secondArm, impulse);
+                        }
+                    }
                 }
                 continue;
             }
