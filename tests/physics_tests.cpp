@@ -569,6 +569,41 @@ void testThousandBodySparseStressScene() {
     assert(world.stats().sleepingBodies == 1000U);
 }
 
+void testDeterministicReplay() {
+    const auto runReplay = [] {
+        World world {{.gravity = {0.0F, -9.81F}}};
+        const BodyId floor = world.createBody({
+            .type = BodyType::Static,
+            .position = {0.0F, -2.0F},
+        });
+        static_cast<void>(world.createBoxFixture(floor, {.halfExtents = {8.0F, 0.5F}}));
+        const BodyId body = world.createBody({
+            .type = BodyType::Dynamic,
+            .position = {-1.0F, 2.0F},
+            .mass = 1.0F,
+        });
+        static_cast<void>(world.createCircleFixture(body, {.radius = 0.4F}));
+        for (int step = 0; step < 240; ++step) {
+            if ((step % 24) == 0) {
+                assert(world.applyForce(body, {3.0F, 0.0F}));
+            }
+            world.step(1.0F / 120.0F);
+        }
+        const BodyState* const state = world.body(body);
+        assert(state != nullptr);
+        return *state;
+    };
+
+    const BodyState first = runReplay();
+    const BodyState second = runReplay();
+    assert(first.position.x == second.position.x);
+    assert(first.position.y == second.position.y);
+    assert(first.angle == second.angle);
+    assert(first.linearVelocity.x == second.linearVelocity.x);
+    assert(first.linearVelocity.y == second.linearVelocity.y);
+    assert(first.angularVelocity == second.angularVelocity);
+}
+
 void testCameraRoundTripAndSoftwareRenderer() {
     render2d::render::Camera2D camera {64U, 64U, 16.0F};
     camera.setPosition({1.0F, -2.0F});
@@ -683,6 +718,7 @@ int main() {
     testRayCastQuery();
     testSweepAndPruneSkipsSparsePairs();
     testThousandBodySparseStressScene();
+    testDeterministicReplay();
     testCameraRoundTripAndSoftwareRenderer();
     testPhysicsDebugVisualSnapshot();
     testTexturesSpritesAtlasesAndTileMaps();

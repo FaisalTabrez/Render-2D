@@ -67,6 +67,7 @@ For a short non-interactive graphics smoke test, use:
 - Physics debug draw for fixtures, AABBs, contact normals, joints, and sleeping bodies
 - Per-step solver-iteration and timing telemetry through `WorldStats`
 - Deterministic 1,000-body sparse-scene stress regression
+- Exact same-build deterministic replay regression for repeated force input
 - Bullet CCD for high-speed circular dynamic bodies against static or kinematic geometry
 - Deterministic per-pair contact-impulse caching and warm starting
 - Circle, oriented-box, and convex-polygon contacts with SAT (up to 8 vertices)
